@@ -214,9 +214,15 @@ class CatalogoService {
   async importarDesdeExcel(distribuidoraId, fileBuffer) {
     const workbook = XLSX.read(fileBuffer, { type: "buffer" });
     const firstSheetName = workbook.SheetNames[0];
-    const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
-      defval: "",
-    });
+    const rawRows = XLSX.utils
+      .sheet_to_json(workbook.Sheets[firstSheetName], { defval: "" })
+      .filter(
+        (r) =>
+          String(r.SKU || "").trim() !== "" &&
+          String(r.Nombre || "")
+            .trim()
+            .toUpperCase() !== "TOTALES",
+      );
 
     if (rawRows.length === 0) {
       const err = new Error("La planilla Excel está vacía");
