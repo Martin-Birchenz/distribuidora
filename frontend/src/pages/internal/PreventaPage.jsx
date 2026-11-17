@@ -33,11 +33,15 @@ export default function PreventaPage() {
   const [showNuevoCliente, setShowNuevoCliente] = useState(false);
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre_fantasia: "",
+    cuit: "",
     direccion: "",
     zona_reparto: "",
     telefono: "",
     lista_precio_default: "MAYORISTA",
     credit_limit: 0,
+    saldo_inicial: 0,
+    web_access_enabled: false,
+    web_pin: "",
   });
   const [waTexto, setWaTexto] = useState("");
   const [waAudio, setWaAudio] = useState(null);
@@ -609,8 +613,8 @@ export default function PreventaPage() {
 
       {/* Modal Alta Rápida Comercio */}
       {showNuevoCliente && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4 my-8">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="font-bold text-slate-900">
                 Alta Rápida de Comercio
@@ -671,6 +675,104 @@ export default function PreventaPage() {
                   className="px-3 py-2 rounded-xl border border-slate-300 text-sm"
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">
+                    Límite Crédito ($ 0 = Sin tope)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={nuevoCliente.credit_limit ?? 0}
+                    onChange={(e) =>
+                      setNuevoCliente({
+                        ...nuevoCliente,
+                        credit_limit: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">
+                    Saldo Inicial Adeudado ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={nuevoCliente.saldo_inicial ?? 0}
+                    onChange={(e) =>
+                      setNuevoCliente({
+                        ...nuevoCliente,
+                        saldo_inicial: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  placeholder="CUIT (opcional)"
+                  value={nuevoCliente.cuit || ""}
+                  onChange={(e) =>
+                    setNuevoCliente({
+                      ...nuevoCliente,
+                      cuit: e.target.value,
+                    })
+                  }
+                  className="px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                />
+                <select
+                  value={nuevoCliente.lista_precio_default}
+                  onChange={(e) =>
+                    setNuevoCliente({
+                      ...nuevoCliente,
+                      lista_precio_default: e.target.value,
+                    })
+                  }
+                  className="px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                >
+                  <option value="MAYORISTA">Lista Mayorista</option>
+                  <option value="ESPECIAL">Lista Especial</option>
+                  <option value="MINORISTA">Lista Minorista</option>
+                </select>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(nuevoCliente.web_access_enabled)}
+                    onChange={(e) =>
+                      setNuevoCliente({
+                        ...nuevoCliente,
+                        web_access_enabled: e.target.checked,
+                      })
+                    }
+                  />
+                  Habilitar compra en Portal Web Mayorista
+                </label>
+                {nuevoCliente.web_access_enabled && (
+                  <input
+                    required
+                    placeholder="PIN de acceso web (ej: 1234)"
+                    value={nuevoCliente.web_pin || ""}
+                    onChange={(e) =>
+                      setNuevoCliente({
+                        ...nuevoCliente,
+                        web_pin: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white"
+                  />
+                )}
+              </div>
+
               <button
                 type="submit"
                 className="w-full py-2.5 rounded-xl bg-brand-primary text-white font-semibold text-sm cursor-pointer"
