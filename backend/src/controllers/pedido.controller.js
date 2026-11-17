@@ -100,6 +100,7 @@ class PedidoController {
       const data = await pedidoService.cambiarEstadoPedido(
         req.distribuidoraId,
         req.user.userId,
+        req.user.role,
         Number(req.params.id),
         req.body.estado,
       );

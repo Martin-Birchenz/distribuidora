@@ -4,27 +4,33 @@ const pool = require("../config/db");
 class ClienteService {
   async listarComercios(distribuidoraId, { q = "", zona = "" } = {}) {
     let sql = `
-      SELECT id, codigo_interno, nombre_fantasia, razon_social, cuit, telefono,
-             direccion, zona_reparto, lista_precio_default, credit_limit,
-             current_balance, web_access_enabled, is_active
-      FROM clientes_comercios
-      WHERE distribuidora_id = ? AND deleted_at IS NULL
-    `;
+    SELECT c.id, c.codigo_interno, c.nombre_fantasia, c.razon_social, c.cuit, c.telefono,
+           c.direccion, c.zona_reparto, c.lista_precio_default, c.credit_limit,
+           c.current_balance, c.web_access_enabled, c.is_active,
+           COALESCE((
+             SELECT SUM(p.total)
+             FROM pedidos p
+             WHERE p.cliente_comercio_id = c.id
+               AND p.distribuidora_id = c.distribuidora_id
+               AND p.estado = 'PENDIENTE_APROBACION'
+               AND p.deleted_at IS NULL
+           ), 0) AS deuda_pendiente_aprobacion
+    FROM clientes_comercios c
+    WHERE c.distribuidora_id = ? AND c.deleted_at IS NULL
+  `;
     const params = [distribuidoraId];
 
     if (q) {
-      sql += ` AND (nombre_fantasia LIKE ? OR razon_social LIKE ? OR cuit LIKE ? OR codigo_interno LIKE ?)`;
+      sql += ` AND (c.nombre_fantasia LIKE ? OR c.razon_social LIKE ? OR c.cuit LIKE ? OR c.codigo_interno LIKE ?)`;
       const like = `%${q}%`;
       params.push(like, like, like, like);
     }
-
     if (zona) {
-      sql += ` AND zona_reparto = ?`;
+      sql += ` AND c.zona_reparto = ?`;
       params.push(zona);
     }
 
-    sql += ` ORDER BY nombre_fantasia ASC`;
-
+    sql += ` ORDER BY c.nombre_fantasia ASC`;
     const [rows] = await pool.query(sql, params);
     return rows;
   }

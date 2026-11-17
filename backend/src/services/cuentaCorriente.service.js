@@ -104,10 +104,18 @@ class CuentaCorrienteService {
 
   async resumenSaldosDeudores(distribuidoraId) {
     const [rows] = await pool.query(
-      `SELECT id, nombre_fantasia, zona_reparto, telefono, credit_limit, current_balance
-       FROM clientes_comercios
-       WHERE distribuidora_id = ? AND current_balance > 0 AND deleted_at IS NULL
-       ORDER BY current_balance DESC`,
+      `SELECT c.id, c.nombre_fantasia, c.zona_reparto, c.telefono, c.credit_limit, c.current_balance,
+            COALESCE((
+              SELECT SUM(p.total)
+              FROM pedidos p
+              WHERE p.cliente_comercio_id = c.id
+                AND p.distribuidora_id = c.distribuidora_id
+                AND p.estado = 'PENDIENTE_APROBACION'
+                AND p.deleted_at IS NULL
+            ), 0) AS pendiente_aprobacion
+     FROM clientes_comercios c
+     WHERE c.distribuidora_id = ? AND c.deleted_at IS NULL
+     ORDER BY (c.current_balance + pendiente_aprobacion) DESC, c.nombre_fantasia ASC`,
       [distribuidoraId],
     );
 
@@ -115,9 +123,13 @@ class CuentaCorrienteService {
       (acc, r) => acc + Number(r.current_balance),
       0,
     );
+    const comerciosConDeuda = rows.filter(
+      (r) => Number(r.current_balance) > 0,
+    ).length;
+
     return {
       total_a_cobrar: Number(totalCalle.toFixed(2)),
-      comercios_con_saldo: rows.length,
+      comercios_con_saldo: comerciosConDeuda,
       detalle: rows,
     };
   }

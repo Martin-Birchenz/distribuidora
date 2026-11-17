@@ -7,7 +7,12 @@ const PRECIO_COL_MAP = {
 };
 
 class PedidoService {
-  async crearPedidoTransaccional({ distribuidoraId, userId = null, payload }) {
+  async crearPedidoTransaccional({
+    distribuidoraId,
+    userId = null,
+    userRole = null,
+    payload,
+  }) {
     const connection = await pool.getConnection();
 
     try {
@@ -82,13 +87,26 @@ class PedidoService {
         });
       }
 
+      // Evaluar límite de crédito incluyendo pedidos ya pendientes de aprobación
       let estadoPedido = "CONFIRMADO";
       if (cliente && payload.condicion_pago === "CUENTA_CORRIENTE") {
-        const saldoProyectado = Number(cliente.current_balance) + totalPedido;
-        if (
-          Number(cliente.credit_limit) > 0 &&
-          saldoProyectado > Number(cliente.credit_limit)
-        ) {
+        const [pendRows] = await connection.query(
+          `SELECT COALESCE(SUM(total), 0) AS total_pendiente
+           FROM pedidos
+           WHERE distribuidora_id = ? AND cliente_comercio_id = ? AND estado = 'PENDIENTE_APROBACION' AND deleted_at IS NULL`,
+          [distribuidoraId, cliente.id],
+        );
+        const deudaPendienteAprobacion = Number(
+          pendRows[0].total_pendiente || 0,
+        );
+        const saldoProyectado =
+          Number(cliente.current_balance) +
+          deudaPendienteAprobacion +
+          totalPedido;
+        const limite = Number(cliente.credit_limit || 0);
+
+        if (limite > 0 && saldoProyectado > limite) {
+          // Si es preventista o portal web, queda retenido esperando autorización de Admin
           estadoPedido = "PENDIENTE_APROBACION";
         }
       }
@@ -203,7 +221,9 @@ class PedidoService {
       SELECT p.id, p.numero_pedido, p.cliente_comercio_id,
              COALESCE(c.nombre_fantasia, p.guest_nombre) AS cliente_nombre,
              COALESCE(c.direccion, p.guest_direccion) AS cliente_direccion,
-             c.zona_reparto, u.full_name AS preventista_nombre,
+             c.zona_reparto, c.credit_limit AS cliente_limite_credito,
+             c.current_balance AS cliente_saldo_actual,
+             u.full_name AS preventista_nombre,
              p.origen, p.lista_aplicada, p.estado, p.condicion_pago,
              p.total, p.notas, p.created_at
       FROM pedidos p
@@ -217,12 +237,10 @@ class PedidoService {
       sql += ` AND p.estado = ?`;
       params.push(estado);
     }
-
     if (zona) {
       sql += ` AND c.zona_reparto = ?`;
       params.push(zona);
     }
-
     if (fecha) {
       sql += ` AND DATE(p.created_at) = ?`;
       params.push(fecha);
@@ -265,7 +283,13 @@ class PedidoService {
     return { ...pedRows[0], items };
   }
 
-  async cambiarEstadoPedido(distribuidoraId, userId, pedidoId, nuevoEstado) {
+  async cambiarEstadoPedido(
+    distribuidoraId,
+    userId,
+    userRole,
+    pedidoId,
+    nuevoEstado,
+  ) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
@@ -293,11 +317,38 @@ class PedidoService {
         throw err;
       }
 
+      // Bloquear despacho o entrega directa si el pedido nunca fue aprobado por exceso de crédito
+      if (
+        pedido.estado === "PENDIENTE_APROBACION" &&
+        ["DESPACHADO", "ENTREGADO"].includes(nuevoEstado)
+      ) {
+        const err = new Error(
+          "Este pedido excede el límite de crédito y debe ser APROBADO por Administración antes de despacharlo",
+        );
+        err.statusCode = 403;
+        throw err;
+      }
+
+      // Solo ADMIN o SUPERADMIN pueden aprobar un pedido retenido por límite de crédito
+      if (
+        pedido.estado === "PENDIENTE_APROBACION" &&
+        nuevoEstado === "CONFIRMADO"
+      ) {
+        if (!["ADMIN", "SUPERADMIN"].includes(userRole)) {
+          const err = new Error(
+            "Solo un Administrador puede autorizar pedidos que superan el límite de crédito",
+          );
+          err.statusCode = 403;
+          throw err;
+        }
+      }
+
       const [items] = await connection.query(
         `SELECT producto_id, cantidad, nombre_snapshot FROM pedido_items WHERE pedido_id = ? ORDER BY producto_id ASC`,
         [pedidoId],
       );
 
+      // Caso 1: Aprobar pedido retenido -> Descuenta stock e impacta deuda en CC
       if (
         pedido.estado === "PENDIENTE_APROBACION" &&
         nuevoEstado !== "CANCELADO"
@@ -357,6 +408,7 @@ class PedidoService {
         }
       }
 
+      // Caso 2: Cancelar pedido confirmado -> Repone stock y revierte deuda en CC
       if (
         nuevoEstado === "CANCELADO" &&
         pedido.estado !== "PENDIENTE_APROBACION"
@@ -435,7 +487,6 @@ class PedidoService {
       whereExtra += ` AND c.zona_reparto = ?`;
       params.push(zona);
     }
-
     if (fecha) {
       whereExtra += ` AND DATE(p.created_at) = ?`;
       params.push(fecha);

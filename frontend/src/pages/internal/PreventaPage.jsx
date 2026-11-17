@@ -187,9 +187,11 @@ export default function PreventaPage() {
       return false;
     const limite = Number(clienteSeleccionado.credit_limit || 0);
     if (limite <= 0) return false;
-    return (
-      Number(clienteSeleccionado.current_balance || 0) + totalPedido > limite
+    const deudaActual = Number(clienteSeleccionado.current_balance || 0);
+    const retenidoActual = Number(
+      clienteSeleccionado.deuda_pendiente_aprobacion || 0,
     );
+    return deudaActual + retenidoActual + totalPedido > limite;
   }, [clienteSeleccionado, condicionPago, totalPedido]);
 
   const confirmarPedido = async () => {
@@ -288,9 +290,19 @@ export default function PreventaPage() {
 
       {/* Confirmación exitosa */}
       {resultadoPedido && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-1">
+        <div
+          className={`p-4 rounded-2xl border space-y-1 ${
+            resultadoPedido.requiereAprobacionCredito
+              ? "bg-amber-50 border-amber-300 text-amber-950"
+              : "bg-emerald-50 border-emerald-200 text-emerald-900"
+          }`}
+        >
           <div className="flex items-center gap-2 font-bold">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            {resultadoPedido.requiereAprobacionCredito ? (
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            )}
             <span>Pedido {resultadoPedido.numeroPedido} registrado</span>
           </div>
           <p className="text-sm">
@@ -298,11 +310,12 @@ export default function PreventaPage() {
             <strong>
               ${Number(resultadoPedido.total).toLocaleString("es-AR")}
             </strong>{" "}
-            - Estado: <strong>{resultadoPedido.estado}</strong>
+            • Estado: <strong>{resultadoPedido.estado}</strong>
           </p>
           {resultadoPedido.requiereAprobacionCredito && (
-            <p className="text-xs text-amber-800 font-medium">
-              Quedó pendiente de aprobación de crédito en Administración.
+            <p className="text-xs text-amber-800 font-semibold">
+              Retenido por superar el límite de crédito: no descuenta stock ni
+              se despacha hasta que Administración lo apruebe.
             </p>
           )}
         </div>
@@ -341,8 +354,8 @@ export default function PreventaPage() {
 
             {clienteSeleccionado && (
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                <div>
-                  <span className="text-slate-500">Saldo Cta. Cte.: </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-slate-500">Deuda Confirmada: </span>
                   <strong
                     className={
                       Number(clienteSeleccionado.current_balance) > 0
@@ -355,6 +368,16 @@ export default function PreventaPage() {
                       "es-AR",
                     )}
                   </strong>
+                  {Number(clienteSeleccionado.deuda_pendiente_aprobacion) >
+                    0 && (
+                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
+                      + $
+                      {Number(
+                        clienteSeleccionado.deuda_pendiente_aprobacion,
+                      ).toLocaleString("es-AR")}{" "}
+                      retenido por tope
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -621,8 +644,9 @@ export default function PreventaPage() {
               <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2 text-xs text-amber-800">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  Supera el límite de crédito. Entrará como{" "}
-                  <strong>Pendiente de Aprobación</strong>.
+                  Supera el límite de crédito. Entrará retenido como{" "}
+                  <strong>Pendiente de Aprobación</strong> hasta que
+                  Administración lo autorice.
                 </span>
               </div>
             )}

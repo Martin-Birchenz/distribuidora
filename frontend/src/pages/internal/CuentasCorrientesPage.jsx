@@ -145,7 +145,7 @@ export default function CuentasCorrientesPage() {
                 onChange={(e) => seleccionarComercio(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm"
               >
-                <option value="">-- Seleccionar comercio con saldo --</option>
+                <option value="">-- Seleccionar comercio --</option>
                 {resumen.detalle.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre_fantasia} (Debe: $
@@ -211,7 +211,7 @@ export default function CuentasCorrientesPage() {
             <h2 className="font-bold text-slate-900 text-base">
               {clienteId
                 ? "Últimos Movimientos del Comercio"
-                : "Comercios con Saldo Pendiente"}
+                : "Estado de Cuentas por Comercio"}
             </h2>
             {clienteId && (
               <button
@@ -225,40 +225,64 @@ export default function CuentasCorrientesPage() {
 
           {!clienteId ? (
             <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
-              {resumen.detalle.map((c) => (
-                <div
-                  key={c.id}
-                  onClick={() => seleccionarComercio(String(c.id))}
-                  className="w-full py-3 flex items-center justify-between text-left hover:bg-slate-50 px-2 rounded-lg cursor-pointer"
-                >
-                  <div>
-                    <p className="font-semibold text-sm text-slate-900">
-                      {c.nombre_fantasia}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {c.zona_reparto || "Sin zona"} • Tope:{" "}
-                      <strong>
-                        {Number(c.credit_limit) > 0
-                          ? `$${Number(c.credit_limit).toLocaleString("es-AR")}`
-                          : "Sin tope"}
-                      </strong>
-                    </p>
+              {resumen.detalle.map((c) => {
+                const deuda = Number(c.current_balance || 0);
+                const tope = Number(c.credit_limit || 0);
+                const retenido = Number(c.pendiente_aprobacion || 0);
+                const excedido = tope > 0 && deuda > tope;
+
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => seleccionarComercio(String(c.id))}
+                    className="w-full py-3 flex items-center justify-between text-left hover:bg-slate-50 px-2 rounded-lg cursor-pointer"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="font-semibold text-sm text-slate-900">
+                          {c.nombre_fantasia}
+                        </p>
+                        {excedido && (
+                          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold">
+                            EXCEDIDO DE TOPE
+                          </span>
+                        )}
+                        {retenido > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                            +${retenido.toLocaleString("es-AR")} pend.
+                            aprobación
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {c.zona_reparto || "Sin zona"} • Tope:{" "}
+                        <strong>
+                          {tope > 0
+                            ? `$${tope.toLocaleString("es-AR")}`
+                            : "Sin tope"}
+                        </strong>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`font-bold text-sm ${
+                          deuda > 0 ? "text-red-600" : "text-emerald-700"
+                        }`}
+                      >
+                        ${deuda.toLocaleString("es-AR")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => abrirEditorTope(e, c)}
+                        title="Modificar límite de crédito"
+                        className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-200 text-slate-600 cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-red-600">
-                      ${Number(c.current_balance).toLocaleString("es-AR")}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => abrirEditorTope(e, c)}
-                      title="Modificar límite de crédito"
-                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-200 text-slate-600 cursor-pointer"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto text-xs">
