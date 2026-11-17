@@ -11,18 +11,37 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:3000",
   process.env.FRONTEND_URL,
-].filter(Boolean);
+]
+  .filter(Boolean)
+  .map((u) => u.trim().replace(/\/$/, ""));
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // 1. Permitir peticiones sin origin (Postman, curl, webhooks)
+      if (!origin) return callback(null, true);
+
+      // 2. Permitir localhost, FRONTEND_URL y cualquier dominio/preview de Vercel (*.vercel.app)
+      const isAllowed =
+        allowedOrigins.includes(origin) || origin.endsWith(".vercel.app");
+
+      if (isAllowed) {
         return callback(null, true);
       }
-      return callback(new Error("Origen no permitido por CORS"));
+
+      // Rechazar sin lanzar new Error() para no provocar un 500
+      return callback(null, false);
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "x-distribuidora-id",
+      "x-tenant-slug",
+    ],
   }),
 );
 
