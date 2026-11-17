@@ -10,8 +10,22 @@ import {
   UserPlus,
   ShoppingBag,
   X,
+  Pencil,
 } from "lucide-react";
 import api from "../../config/api";
+
+const INITIAL_NUEVO_CLIENTE = {
+  nombre_fantasia: "",
+  cuit: "",
+  direccion: "",
+  zona_reparto: "",
+  telefono: "",
+  lista_precio_default: "MAYORISTA",
+  credit_limit: 0,
+  saldo_inicial: 0,
+  web_access_enabled: false,
+  web_pin: "",
+};
 
 export default function PreventaPage() {
   const [clientes, setClientes] = useState([]);
@@ -31,18 +45,13 @@ export default function PreventaPage() {
 
   // Modal alta rápida comercio
   const [showNuevoCliente, setShowNuevoCliente] = useState(false);
-  const [nuevoCliente, setNuevoCliente] = useState({
-    nombre_fantasia: "",
-    cuit: "",
-    direccion: "",
-    zona_reparto: "",
-    telefono: "",
-    lista_precio_default: "MAYORISTA",
-    credit_limit: 0,
-    saldo_inicial: 0,
-    web_access_enabled: false,
-    web_pin: "",
-  });
+  const [nuevoCliente, setNuevoCliente] = useState(INITIAL_NUEVO_CLIENTE);
+
+  // Modal edición rápida de límite de crédito
+  const [showEditarTope, setShowEditarTope] = useState(false);
+  const [nuevoTopeValor, setNuevoTopeValor] = useState(0);
+  const [guardandoTope, setGuardandoTope] = useState(false);
+
   const [waTexto, setWaTexto] = useState("");
   const [waAudio, setWaAudio] = useState(null);
   const [procesandoIA, setProcesandoIA] = useState(false);
@@ -211,7 +220,7 @@ export default function PreventaPage() {
       setResultadoPedido(data.data);
       setCarrito([]);
       setNotas("");
-      cargarDatos(); // Refresca stock y saldo actualizado
+      cargarDatos();
     } catch (err) {
       setErrorMsg(
         err.response?.data?.message || "No se pudo confirmar el pedido",
@@ -228,16 +237,32 @@ export default function PreventaPage() {
       await cargarDatos();
       setClienteId(String(data.data.id));
       setShowNuevoCliente(false);
-      setNuevoCliente({
-        nombre_fantasia: "",
-        direccion: "",
-        zona_reparto: "",
-        telefono: "",
-        lista_precio_default: "MAYORISTA",
-        credit_limit: 0,
-      });
+      setNuevoCliente(INITIAL_NUEVO_CLIENTE);
     } catch (err) {
       alert(err.response?.data?.message || "Error al crear comercio");
+    }
+  };
+
+  const abrirModalTope = () => {
+    if (!clienteSeleccionado) return;
+    setNuevoTopeValor(Number(clienteSeleccionado.credit_limit || 0));
+    setShowEditarTope(true);
+  };
+
+  const handleGuardarTope = async (e) => {
+    e.preventDefault();
+    if (!clienteSeleccionado) return;
+    setGuardandoTope(true);
+    try {
+      await api.patch(`/internal/clientes/${clienteSeleccionado.id}`, {
+        credit_limit: Number(nuevoTopeValor),
+      });
+      await cargarDatos();
+      setShowEditarTope(false);
+    } catch (err) {
+      alert(err.response?.data?.message || "No se pudo actualizar el límite");
+    } finally {
+      setGuardandoTope(false);
     }
   };
 
@@ -273,7 +298,7 @@ export default function PreventaPage() {
             <strong>
               ${Number(resultadoPedido.total).toLocaleString("es-AR")}
             </strong>{" "}
-            • Estado: <strong>{resultadoPedido.estado}</strong>
+            - Estado: <strong>{resultadoPedido.estado}</strong>
           </p>
           {resultadoPedido.requiereAprobacionCredito && (
             <p className="text-xs text-amber-800 font-medium">
@@ -331,14 +356,25 @@ export default function PreventaPage() {
                     )}
                   </strong>
                 </div>
-                <div>
+
+                <div className="flex items-center gap-1.5">
                   <span className="text-slate-500">Límite Crédito: </span>
                   <strong>
                     {Number(clienteSeleccionado.credit_limit) > 0
                       ? `$${Number(clienteSeleccionado.credit_limit).toLocaleString("es-AR")}`
                       : "Sin tope"}
                   </strong>
+                  <button
+                    type="button"
+                    onClick={abrirModalTope}
+                    title="Configurar límite de crédito"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-300 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 cursor-pointer"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Editar tope
+                  </button>
                 </div>
+
                 <div>
                   <span className="text-slate-500">Dir: </span>
                   <span>{clienteSeleccionado.direccion}</span>
@@ -610,6 +646,48 @@ export default function PreventaPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal Editar Límite de Crédito del Comercio Seleccionado */}
+      {showEditarTope && clienteSeleccionado && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <h3 className="font-bold text-slate-900 text-sm">
+                Límite de Crédito — {clienteSeleccionado.nombre_fantasia}
+              </h3>
+              <button
+                onClick={() => setShowEditarTope(false)}
+                className="cursor-pointer"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleGuardarTope} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Tope máximo adeudado ($ ARS — poner 0 para Sin Tope)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  required
+                  value={nuevoTopeValor}
+                  onChange={(e) => setNuevoTopeValor(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={guardandoTope}
+                className="w-full py-2.5 rounded-xl bg-brand-primary text-white font-semibold text-sm cursor-pointer disabled:opacity-60"
+              >
+                {guardandoTope ? "Guardando..." : "Actualizar Tope"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal Alta Rápida Comercio */}
       {showNuevoCliente && (
