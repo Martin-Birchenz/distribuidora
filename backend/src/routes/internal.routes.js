@@ -30,9 +30,7 @@ const {
   registrarCobranzaSchema,
 } = require("../schemas/cuentaCorriente.schema");
 const aiParserService = require("../services/aiParser.service");
-const { sendSuccess } = require("../middlewares/response.middleware");
 const devolucionService = require("../services/devolucion.service");
-const { sendSuccess } = require("../middlewares/response.middleware");
 const repartoService = require("../services/reparto.service");
 const dashboardService = require("../services/dashboard.service");
 const { sendSuccess } = require("../middlewares/response.middleware");
