@@ -9,7 +9,7 @@ import PublicB2BLayout from "./layouts/PublicB2BLayout";
 import PortalTiendaPage from "./pages/portal/PortalTiendaPage";
 
 // Páginas Internas & SuperAdmin
-import Login from "./pages/internal/Login";
+import Login from "./pages/auth/Login";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
 import DashboardPage from "./pages/internal/DashboardPage";
 import PreventaPage from "./pages/internal/PreventaPage";
