@@ -28,7 +28,7 @@ class RepartoService {
               COALESCE(c.nombre_fantasia, p.guest_nombre, 'Cliente Mostrador') AS comercio_nombre,
               COALESCE(c.direccion, p.guest_direccion, 'Sin dirección') AS direccion,
               COALESCE(c.telefono, p.guest_telefono, '') AS telefono,
-              COALESCE(NULLIF(TRIM(c.zona_reparto), ''), 'General') AS zona_reparto,
+              COALESCE(NULLIF(TRIM(c.zona), ''), 'General') AS zona_reparto,
               COALESCE(c.saldo_actual, 0) AS saldo_cuenta_corriente
        FROM pedidos p
        LEFT JOIN clientes_comercios c ON p.cliente_comercio_id = c.id

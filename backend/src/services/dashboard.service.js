@@ -28,7 +28,6 @@ class DashboardService {
   }
 
   async obtenerResumenEjecutivo(distribuidoraId) {
-    // 1. Ventas del día y del mes (pedidos no cancelados ni rechazados)
     const [[ventasStats]] = await pool.query(
       `SELECT
          COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() THEN total ELSE 0 END), 0) AS ventas_hoy,
@@ -40,7 +39,6 @@ class DashboardService {
       [distribuidoraId],
     );
 
-    // 2. Dinero total en la calle (Cuentas Corrientes) + Top 5 Deudores
     const [[carteraStats]] = await pool.query(
       `SELECT
          COALESCE(SUM(CASE WHEN saldo_actual > 0 THEN saldo_actual ELSE 0 END), 0) AS total_en_calle,
@@ -51,7 +49,7 @@ class DashboardService {
     );
 
     const [topDeudores] = await pool.query(
-      `SELECT id, nombre_fantasia, zona_reparto, saldo_actual, credit_limit
+      `SELECT id, nombre_fantasia, zona AS zona_reparto, saldo_actual, credit_limit
        FROM clientes_comercios
        WHERE distribuidora_id = ? AND deleted_at IS NULL AND saldo_actual > 0
        ORDER BY saldo_actual DESC
@@ -59,7 +57,6 @@ class DashboardService {
       [distribuidoraId],
     );
 
-    // 3. Productos con quiebre o stock crítico (<= 10 bultos)
     const [stockCritico] = await pool.query(
       `SELECT id, sku, nombre, unidad_venta, stock_actual
        FROM productos
@@ -69,7 +66,6 @@ class DashboardService {
       [distribuidoraId],
     );
 
-    // 4. Últimos movimientos de auditoría
     const [ultimosLogs] = await pool.query(
       `SELECT a.id, a.accion, a.entidad, a.detalle, a.created_at, u.full_name AS usuario_nombre
        FROM audit_logs a

@@ -2,9 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, Mail, PackageCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import api from "../../config/api.js";
 
-export default function Login() {
+export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,17 +17,14 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      const { data } = await api.post("/auth/login", { email, password });
-      const { token, user } = data.data;
-      login(token, user);
-
-      if (user.role === "SUPERADMIN") {
+      const loggedUser = await login(email.trim(), password);
+      if (loggedUser?.role === "SUPERADMIN") {
         navigate("/superadmin");
       } else {
         navigate("/app");
       }
     } catch (err) {
-      setError(err.response?.data?.message || "Credenciales inválidas");
+      setError(err.response?.data?.message || "Email o contraseña incorrectos");
     } finally {
       setLoading(false);
     }
