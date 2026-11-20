@@ -25,10 +25,10 @@ class RepartoService {
               p.notas,
               p.created_at,
               c.id AS cliente_comercio_id,
-              COALESCE(c.nombre_fantasia, p.guest_nombre) AS comercio_nombre,
-              COALESCE(c.direccion, p.guest_direccion) AS direccion,
-              COALESCE(c.telefono, p.guest_telefono) AS telefono,
-              COALESCE(NULLIF(TRIM(c.zona_reparto), ''), 'Sin Zona Asignada') AS zona_reparto,
+              COALESCE(c.nombre_fantasia, p.guest_nombre, 'Cliente Mostrador') AS comercio_nombre,
+              COALESCE(c.direccion, p.guest_direccion, 'Sin dirección') AS direccion,
+              COALESCE(c.telefono, p.guest_telefono, '') AS telefono,
+              COALESCE(NULLIF(TRIM(c.zona_reparto), ''), 'General') AS zona_reparto,
               COALESCE(c.saldo_actual, 0) AS saldo_cuenta_corriente
        FROM pedidos p
        LEFT JOIN clientes_comercios c ON p.cliente_comercio_id = c.id
@@ -36,28 +36,30 @@ class RepartoService {
          AND p.deleted_at IS NULL
          AND p.estado IN ('CONFIRMADO', 'PREPARADO', 'EN_REPARTO')
          ${filtroFecha}
-       ORDER BY zona_reparto ASC, comercio_nombre ASC, p.id ASC`,
+       ORDER BY p.id DESC`,
       params,
     );
 
-    // Agrupar por zona_reparto para la vista móvil del chofer/preventista
     const zonasMap = new Map();
     for (const row of rows) {
-      if (!zonasMap.has(row.zona_reparto)) {
-        zonasMap.set(row.zona_reparto, {
-          zona: row.zona_reparto,
+      const zona = row.zona_reparto || "General";
+      if (!zonasMap.has(zona)) {
+        zonasMap.set(zona, {
+          zona,
           cantidad_paradas: 0,
           total_reparto_zona: 0,
           paradas: [],
         });
       }
-      const grupo = zonasMap.get(row.zona_reparto);
+      const grupo = zonasMap.get(zona);
       grupo.cantidad_paradas += 1;
-      grupo.total_reparto_zona += Number(row.total);
+      grupo.total_reparto_zona += Number(row.total || 0);
       grupo.paradas.push(row);
     }
 
-    return Array.from(zonasMap.values());
+    return Array.from(zonasMap.values()).sort((a, b) =>
+      a.zona.localeCompare(b.zona),
+    );
   }
 
   async registrarCobroEnCalle(distribuidoraId, usuarioId, payload) {
@@ -67,7 +69,6 @@ class RepartoService {
     try {
       await connection.beginTransaction();
 
-      // 1. Bloquear ficha del comercio
       const [cliRows] = await connection.query(
         `SELECT id, nombre_fantasia, saldo_actual
          FROM clientes_comercios
@@ -85,13 +86,11 @@ class RepartoService {
       const comercio = cliRows[0];
       const nuevoSaldo = Number(comercio.saldo_actual) - data.monto;
 
-      // 2. Descontar saldo de cuenta corriente
       await connection.query(
         `UPDATE clientes_comercios SET saldo_actual = ? WHERE id = ?`,
         [nuevoSaldo, comercio.id],
       );
 
-      // 3. Registrar asiento en cuenta_corriente_movimientos
       const concepto = `Cobro en calle (${data.metodo_pago})${data.notas ? ` - ${data.notas}` : ""}`;
       await connection.query(
         `INSERT INTO cuenta_corriente_movimientos

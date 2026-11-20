@@ -14,7 +14,9 @@ const aiResponseSchema = z.object({
 
 class AiParserService {
   constructor() {
-    this.ai = process.env.GEMINI_API_KEY ? new GoogleGenAI() : null;
+    this.ai = process.env.GEMINI_API_KEY
+      ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+      : null;
   }
 
   async parsearPedidoWhatsApp(
@@ -22,12 +24,11 @@ class AiParserService {
     { texto = "", audioFile = null },
   ) {
     if (!this.ai) {
-      const err = new Error("GEMINI_API_KEY no configurada en el servidor");
+      const err = new Error("GEMINI_API_KEY no configurada en Render");
       err.statusCode = 503;
       throw err;
     }
 
-    // 1. Verificar que la distribuidora tenga el Add-on IA activo
     const [distRows] = await pool.query(
       "SELECT has_ai_addon FROM distribuidoras WHERE id = ? LIMIT 1",
       [distribuidoraId],
@@ -40,7 +41,6 @@ class AiParserService {
       throw err;
     }
 
-    // 2. Obtener catálogo real del tenant para acotar al modelo
     const [productos] = await pool.query(
       `SELECT id, sku, nombre, marca, unidad_venta, precio_mayorista, precio_minorista, precio_especial, stock_actual
        FROM productos
@@ -69,7 +69,7 @@ Tu única tarea es mapear el mensaje o audio del cliente contra el CATÁLOGO OFI
 
 REGLAS ESTRICTAS:
 1. Solo podés devolver "producto_id" que existan literalmente en el CATÁLOGO OFICIAL.
-2. Si el cliente pide un producto genérico que coincide con 2 o más variantes (ej: "2 packs de gaseosa" y hay Cola y Naranja), NO adivines: agregalo en "items_ambiguos" explicando la duda.
+2. Si el cliente pide un producto genérico que coincide con 2 o más variantes, agregalo en "items_ambiguos" explicando la duda.
 3. Si pide algo que no existe en el catálogo, agregalo en "items_ambiguos".
 4. Convertí expresiones coloquiales ("media docena" = 6, "un par" = 2, "tres cajones" = 3) a enteros positivos.
 
@@ -86,7 +86,7 @@ ${catalogoCompacto}
         },
       });
       contents.push({
-        text: "Transcribí mentalmente este audio de pedido de WhatsApp y extraé los ítems exactos del catálogo.",
+        text: "Transcribí este audio de pedido de WhatsApp y extraé los ítems exactos del catálogo.",
       });
     } else {
       contents.push({
@@ -94,17 +94,16 @@ ${catalogoCompacto}
       });
     }
 
-    // 3. Llamada determinística con Structured Output y timeout de 15s[cite: 1]
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(
         () => reject(new Error("Timeout al procesar pedido con IA")),
-        15000,
+        20000,
       ),
     );
 
     const response = await Promise.race([
       this.ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-2.5-flash",
         contents,
         config: {
           systemInstruction,
@@ -138,7 +137,6 @@ ${catalogoCompacto}
 
     const parsedJson = aiResponseSchema.parse(JSON.parse(response.text));
 
-    // 4. Hidratar con precios reales y stock desde MySQL (cero alucinación numérica)
     const prodMap = new Map(productos.map((p) => [p.id, p]));
     const itemsHidratados = [];
 

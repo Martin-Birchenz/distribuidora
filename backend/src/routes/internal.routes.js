@@ -196,7 +196,7 @@ router.post("/reparto/cobros", async (req, res, next) => {
 
 router.get(
   "/dashboard/resumen",
-  requireRole(["ADMIN_DIST"]),
+  requireRole(["ADMIN_DIST", "SUPERADMIN"]),
   async (req, res, next) => {
     try {
       const data = await dashboardService.obtenerResumenEjecutivo(
