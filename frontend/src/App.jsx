@@ -1,22 +1,33 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import LoginPage from "./pages/auth/LoginPage";
-import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
-import InternalLayout from "./layouts/InternalLayout";
-import PreventaPage from "./pages/internal/PreventaPage";
-import CatalogoPage from "./pages/internal/CatalogoPage";
-import PedidosDepositoPage from "./pages/internal/PedidosDepositoPage";
-import CuentasCorrientesPage from "./pages/internal/CuentasCorrientesPage";
-import PortalTiendaPage from "./pages/portal/PortalTiendaPage";
 
-function ProtectedRoute({ allowedRoles, children }) {
-  const { isAuthenticated, user } = useAuth();
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  if (allowedRoles && !allowedRoles.includes(user?.role)) {
-    return <Navigate to="/login" replace />;
-  }
+// Layouts
+import InternalLayout from "./layouts/InternalLayout";
+import PublicB2BLayout from "./layouts/PublicB2BLayout";
+
+// Páginas Públicas B2B (Portal Mayorista /t/:slug)
+import PublicB2BCatalog from "./pages/public/PublicB2BCatalog";
+
+// Páginas Internas & SuperAdmin
+import Login from "./pages/internal/Login";
+import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
+import PreventaPage from "./pages/internal/PreventaPage";
+import PedidosDepositoPage from "./pages/internal/PedidosDepositoPage";
+import HojaRutaPage from "./pages/internal/HojaRutaPage";
+import CatalogoPage from "./pages/internal/CatalogoPage";
+import CuentasCorrientesPage from "./pages/internal/CuentasCorrientesPage";
+import DashboardPage from "./pages/internal/DashboardPage";
+
+function RequireSuperAdmin({ children }) {
+  const { user, isAuthenticated } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role !== "SUPERADMIN") return <Navigate to="/app" replace />;
+  return children;
+}
+
+function RequireStaff({ children }) {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
   return children;
 }
 
@@ -25,49 +36,45 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Acceso Unificado */}
-          <Route path="/login" element={<LoginPage />} />
+          {/* Portal Público B2B Multi-Tenant (Modo Camaleón) */}
+          <Route path="/t/:slug" element={<PublicB2BLayout />}>
+            <Route index element={<PublicB2BCatalog />} />
+          </Route>
 
-          {/* Consola SuperAdmin */}
+          {/* Login Unificado */}
+          <Route path="/login" element={<Login />} />
+
+          {/* Consola Comercial SuperAdmin */}
           <Route
             path="/superadmin"
             element={
-              <ProtectedRoute allowedRoles={["SUPERADMIN"]}>
+              <RequireSuperAdmin>
                 <SuperAdminDashboard />
-              </ProtectedRoute>
+              </RequireSuperAdmin>
             }
           />
 
-          {/* Operación Interna Multi-Tenant (Preventa, Depósito, Admin) */}
+          {/* Panel Operativo de la Distribuidora */}
           <Route
             path="/app"
             element={
-              <ProtectedRoute
-                allowedRoles={[
-                  "SUPERADMIN",
-                  "ADMIN",
-                  "PREVENTISTA",
-                  "DEPOSITO",
-                ]}
-              >
+              <RequireStaff>
                 <InternalLayout />
-              </ProtectedRoute>
+              </RequireStaff>
             }
           >
-            <Route index element={<Navigate to="/app/preventa" replace />} />
+            <Route index element={<Navigate to="preventa" replace />} />
             <Route path="preventa" element={<PreventaPage />} />
-            <Route path="catalogo" element={<CatalogoPage />} />
             <Route path="pedidos" element={<PedidosDepositoPage />} />
+            <Route path="hoja-ruta" element={<HojaRutaPage />} />
+            <Route path="catalogo" element={<CatalogoPage />} />
             <Route
               path="cuentas-corrientes"
               element={<CuentasCorrientesPage />}
             />
+            <Route index element={<DashboardPage />} />
           </Route>
 
-          {/* Portal Web Público Opcional (Plan Full) */}
-          <Route path="/t/:slug" element={<PortalTiendaPage />} />
-
-          {/* Fallback */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>

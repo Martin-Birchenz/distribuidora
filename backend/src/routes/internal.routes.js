@@ -31,6 +31,11 @@ const {
 } = require("../schemas/cuentaCorriente.schema");
 const aiParserService = require("../services/aiParser.service");
 const { sendSuccess } = require("../middlewares/response.middleware");
+const devolucionService = require("../services/devolucion.service");
+const { sendSuccess } = require("../middlewares/response.middleware");
+const repartoService = require("../services/reparto.service");
+const dashboardService = require("../services/dashboard.service");
+const { sendSuccess } = require("../middlewares/response.middleware");
 
 router.use(authenticate, requireInternalTenant);
 
@@ -135,6 +140,71 @@ router.post(
         },
       );
       return sendSuccess(res, data, "Pedido procesado por IA");
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get("/pedidos/:id/remito-pdf", pedidoController.descargarRemitoPdf);
+
+router.post(
+  "/pedidos/:id/devoluciones",
+  requireRole(["ADMIN_DIST", "DEPOSITO"]),
+  async (req, res, next) => {
+    try {
+      const result = await devolucionService.procesarDevolucion(
+        req.distribuidoraId,
+        Number(req.params.id),
+        req.user.userId,
+        req.body,
+      );
+      return sendSuccess(
+        res,
+        result,
+        "Devolución registrada y stock/saldo actualizados",
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get("/reparto/hoja-ruta", async (req, res, next) => {
+  try {
+    const fecha = req.query.fecha || null;
+    const data = await repartoService.obtenerHojaDeRuta(
+      req.distribuidoraId,
+      fecha,
+    );
+    return sendSuccess(res, data, "Hoja de ruta por zona generada");
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/reparto/cobros", async (req, res, next) => {
+  try {
+    const result = await repartoService.registrarCobroEnCalle(
+      req.distribuidoraId,
+      req.user.userId,
+      req.body,
+    );
+    return sendSuccess(res, result, "Cobro registrado en cuenta corriente");
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get(
+  "/dashboard/resumen",
+  requireRole(["ADMIN_DIST"]),
+  async (req, res, next) => {
+    try {
+      const data = await dashboardService.obtenerResumenEjecutivo(
+        req.distribuidoraId,
+      );
+      return sendSuccess(res, data, "Resumen ejecutivo generado");
     } catch (error) {
       next(error);
     }

@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const pedidoService = require("../services/pedido.service");
 const cuentaCorrienteService = require("../services/cuentaCorriente.service");
 const { sendSuccess } = require("../middlewares/response.middleware");
+const remitoPdfService = require("../services/remitoPdf.service");
 
 class PedidoController {
   async crearInterno(req, res, next) {
@@ -158,6 +159,27 @@ class PedidoController {
         req.distribuidoraId,
       );
       return sendSuccess(res, data, "Resumen de saldos deudores obtenido");
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async descargarRemitoPdf(req, res, next) {
+    try {
+      const pedidoId = Number(req.params.id);
+      const formato = req.query.formato === "ticket" ? "ticket" : "a4";
+      const pdfBuffer = await remitoPdfService.generarRemitoBuffer(
+        req.distribuidoraId,
+        pedidoId,
+        formato,
+      );
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="remito_pedido_${pedidoId}_${formato}.pdf"`,
+      );
+      return res.send(pdfBuffer);
     } catch (error) {
       next(error);
     }

@@ -28,6 +28,11 @@ export default function PedidosDepositoPage() {
     }
   };
 
+  const [pedidoDev, setPedidoDev] = useState(null);
+  const [motivoDev, setMotivoDev] = useState("");
+  const [cantidadesDev, setCantidadesDev] = useState({});
+  const [guardandoDev, setGuardandoDev] = useState(false);
+
   useEffect(() => {
     cargarPedidos();
   }, [filtroEstado]);
@@ -41,12 +46,72 @@ export default function PedidosDepositoPage() {
     }
   };
 
+  const abrirModalDevolucion = async (pedidoId) => {
+    try {
+      const { data } = await api.get(`/internal/pedidos/${pedidoId}`);
+      setPedidoDev(data.data);
+      setMotivoDev("");
+      setCantidadesDev({});
+    } catch {
+      alert("No se pudo cargar el detalle del pedido");
+    }
+  };
+
+  const handleConfirmarDevolucion = async (e) => {
+    e.preventDefault();
+    const items = Object.entries(cantidadesDev)
+      .map(([producto_id, cantidad_devuelta]) => ({
+        producto_id: Number(producto_id),
+        cantidad_devuelta: Number(cantidad_devuelta),
+      }))
+      .filter((it) => it.cantidad_devuelta > 0);
+
+    if (items.length === 0) return alert("Indicá al menos 1 bulto devuelto");
+
+    setGuardandoDev(true);
+    try {
+      const { data } = await api.post(
+        `/internal/pedidos/${pedidoDev.id}/devoluciones`,
+        {
+          motivo: motivoDev,
+          items,
+        },
+      );
+      alert(
+        `Devolución procesada. Crédito aplicado: $${data.data.monto_acreditado.toLocaleString("es-AR")}`,
+      );
+      setPedidoDev(null);
+      cargarPedidos();
+    } catch (err) {
+      alert(err.response?.data?.message || "Error al procesar devolución");
+    } finally {
+      setGuardandoDev(false);
+    }
+  };
+
   const abrirHojaCarga = async () => {
     try {
       const { data } = await api.get("/internal/pedidos/hoja-carga");
       setHojaCarga(data.data);
     } catch (err) {
       alert("Error al generar la comanda consolidada");
+    }
+  };
+
+  const abrirRemitoPdf = async (pedidoId, formato = "a4") => {
+    try {
+      const response = await api.get(
+        `/internal/pedidos/${pedidoId}/remito-pdf`,
+        {
+          params: { formato },
+          responseType: "blob",
+        },
+      );
+      const pdfBlob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(pdfBlob);
+      window.open(url, "_blank");
+    } catch (err) {
+      alert("No se pudo generar el remito PDF");
     }
   };
 
@@ -248,6 +313,29 @@ export default function PedidosDepositoPage() {
                           <XCircle className="w-4 h-4" />
                         </button>
                       )}
+                      <button
+                        onClick={() => abrirRemitoPdf(p.id, "a4")}
+                        className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-semibold cursor-pointer"
+                        title="Descargar Remito A4"
+                      >
+                        PDF A4
+                      </button>
+                      <button
+                        onClick={() => abrirRemitoPdf(p.id, "ticket")}
+                        className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-semibold cursor-pointer"
+                        title="Imprimir Ticket 80mm"
+                      >
+                        Ticket
+                      </button>
+                      {p.estado !== "CANCELADO" &&
+                        p.estado !== "PENDIENTE_APROBACION" && (
+                          <button
+                            onClick={() => abrirModalDevolucion(p.id)}
+                            className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-semibold cursor-pointer"
+                          >
+                            Devolución
+                          </button>
+                        )}
                     </td>
                   </tr>
                 ))
@@ -256,6 +344,91 @@ export default function PedidosDepositoPage() {
           </table>
         </div>
       </div>
+      {pedidoDev && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+          <form
+            onSubmit={handleConfirmarDevolucion}
+            className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-xl"
+          >
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="font-bold text-slate-900 text-sm">
+                Devolución / Nota de Crédito — {pedidoDev.numero_pedido}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPedidoDev(null)}
+                className="text-slate-400 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Motivo de devolución
+              </label>
+              <input
+                type="text"
+                required
+                value={motivoDev}
+                onChange={(e) => setMotivoDev(e.target.value)}
+                placeholder="Ej: Cajón roto en entrega / Rechazo parcial"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+            </div>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {(pedidoDev.items || []).map((it) => (
+                <div
+                  key={it.producto_id}
+                  className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl text-xs"
+                >
+                  <div>
+                    <p className="font-semibold text-slate-800">
+                      {it.nombre_snapshot}
+                    </p>
+                    <p className="text-slate-500">
+                      Entregado: {it.cantidad} • $
+                      {Number(it.precio_unitario).toLocaleString("es-AR")} c/u
+                    </p>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    max={it.cantidad}
+                    placeholder="0"
+                    value={cantidadesDev[it.producto_id] || ""}
+                    onChange={(e) =>
+                      setCantidadesDev((prev) => ({
+                        ...prev,
+                        [it.producto_id]: e.target.value,
+                      }))
+                    }
+                    className="w-20 px-2 py-1.5 rounded-lg border border-slate-300 text-right font-bold"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => setPedidoDev(null)}
+                className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={guardandoDev}
+                className="px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+              >
+                {guardandoDev ? "Procesando..." : "Confirmar Devolución"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
