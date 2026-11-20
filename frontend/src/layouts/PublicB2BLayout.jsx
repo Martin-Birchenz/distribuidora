@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useParams, Link } from "react-router-dom";
-import api from "../services/api";
+import api from "../config/api.js";
 
 export default function PublicB2BLayout() {
   const { slug } = useParams();

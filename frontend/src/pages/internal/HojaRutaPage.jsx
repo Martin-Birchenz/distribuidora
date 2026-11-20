@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api from "../../services/api";
+import api from "../../config/api.js";
 
 export default function HojaRutaPage() {
   const [zonas, setZonas] = useState([]);
