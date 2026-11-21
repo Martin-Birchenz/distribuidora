@@ -28,6 +28,7 @@ class DashboardService {
   }
 
   async obtenerResumenEjecutivo(distribuidoraId) {
+    // 1. Ventas del día y del mes
     const [[ventasStats]] = await pool.query(
       `SELECT
          COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() THEN total ELSE 0 END), 0) AS ventas_hoy,
@@ -39,24 +40,31 @@ class DashboardService {
       [distribuidoraId],
     );
 
+    // 2. Dinero total en la calle (current_balance) + Comercios excedidos
     const [[carteraStats]] = await pool.query(
       `SELECT
-         COALESCE(SUM(CASE WHEN saldo_actual > 0 THEN saldo_actual ELSE 0 END), 0) AS total_en_calle,
-         COUNT(CASE WHEN saldo_actual > credit_limit AND credit_limit > 0 THEN 1 END) AS comercios_excedidos
+         COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) AS total_en_calle,
+         COUNT(CASE WHEN current_balance > credit_limit AND credit_limit > 0 THEN 1 END) AS comercios_excedidos
        FROM clientes_comercios
        WHERE distribuidora_id = ? AND deleted_at IS NULL`,
       [distribuidoraId],
     );
 
+    // 3. Top 5 Deudores
     const [topDeudores] = await pool.query(
-      `SELECT id, nombre_fantasia, zona AS zona_reparto, saldo_actual, credit_limit
+      `SELECT id,
+              nombre_fantasia,
+              zona_reparto,
+              current_balance AS saldo_actual,
+              credit_limit
        FROM clientes_comercios
-       WHERE distribuidora_id = ? AND deleted_at IS NULL AND saldo_actual > 0
-       ORDER BY saldo_actual DESC
+       WHERE distribuidora_id = ? AND deleted_at IS NULL AND current_balance > 0
+       ORDER BY current_balance DESC
        LIMIT 5`,
       [distribuidoraId],
     );
 
+    // 4. Productos con stock crítico (<= 10 bultos)
     const [stockCritico] = await pool.query(
       `SELECT id, sku, nombre, unidad_venta, stock_actual
        FROM productos
@@ -66,6 +74,7 @@ class DashboardService {
       [distribuidoraId],
     );
 
+    // 5. Últimos movimientos auditados
     const [ultimosLogs] = await pool.query(
       `SELECT a.id, a.accion, a.entidad, a.detalle, a.created_at, u.full_name AS usuario_nombre
        FROM audit_logs a

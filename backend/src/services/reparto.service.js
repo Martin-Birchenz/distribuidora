@@ -17,12 +17,19 @@ class RepartoService {
     const params = fecha ? [distribuidoraId, fecha] : [distribuidoraId];
 
     const [rows] = await pool.query(
-      `SELECT p.*,
-              c.nombre_fantasia AS cli_nombre,
-              c.direccion AS cli_direccion,
-              c.telefono AS cli_telefono,
-              c.saldo_actual AS cli_saldo,
-              c.zona AS cli_zona
+      `SELECT p.id AS pedido_id,
+              p.numero_pedido,
+              p.estado,
+              p.condicion_pago,
+              p.total,
+              p.notas,
+              p.created_at,
+              p.cliente_comercio_id,
+              COALESCE(c.nombre_fantasia, p.guest_nombre, 'Cliente Mostrador') AS comercio_nombre,
+              COALESCE(c.direccion, p.guest_direccion, 'Sin dirección') AS direccion,
+              COALESCE(c.telefono, p.guest_telefono, '') AS telefono,
+              COALESCE(NULLIF(TRIM(c.zona_reparto), ''), 'General') AS zona_reparto,
+              COALESCE(c.current_balance, 0) AS saldo_cuenta_corriente
        FROM pedidos p
        LEFT JOIN clientes_comercios c ON p.cliente_comercio_id = c.id
        WHERE p.distribuidora_id = ?
@@ -36,8 +43,7 @@ class RepartoService {
     const zonasMap = new Map();
 
     for (const row of rows) {
-      const zona =
-        (row.cli_zona || row.zona_reparto || "General").trim() || "General";
+      const zona = row.zona_reparto || "General";
 
       if (!zonasMap.has(zona)) {
         zonasMap.set(zona, {
@@ -49,27 +55,9 @@ class RepartoService {
       }
 
       const parada = {
-        pedido_id: row.id,
-        numero_pedido: row.numero_pedido,
-        estado: row.estado,
-        condicion_pago: row.condicion_pago,
+        ...row,
         total: Number(row.total || 0),
-        notas: row.notas,
-        created_at: row.created_at,
-        cliente_comercio_id: row.cliente_comercio_id,
-        comercio_nombre:
-          row.cli_nombre ||
-          row.guest_nombre ||
-          row.cliente_nombre ||
-          "Cliente Mostrador",
-        direccion:
-          row.cli_direccion ||
-          row.guest_direccion ||
-          row.direccion_entrega ||
-          "Sin dirección",
-        telefono: row.cli_telefono || row.guest_telefono || "",
-        zona_reparto: zona,
-        saldo_cuenta_corriente: Number(row.cli_saldo || 0),
+        saldo_cuenta_corriente: Number(row.saldo_cuenta_corriente || 0),
       };
 
       const grupo = zonasMap.get(zona);
@@ -91,7 +79,7 @@ class RepartoService {
       await connection.beginTransaction();
 
       const [cliRows] = await connection.query(
-        `SELECT id, nombre_fantasia, saldo_actual
+        `SELECT id, nombre_fantasia, current_balance
          FROM clientes_comercios
          WHERE id = ? AND distribuidora_id = ? AND deleted_at IS NULL
          FOR UPDATE`,
@@ -105,10 +93,10 @@ class RepartoService {
       }
 
       const comercio = cliRows[0];
-      const nuevoSaldo = Number(comercio.saldo_actual) - data.monto;
+      const nuevoSaldo = Number(comercio.current_balance) - data.monto;
 
       await connection.query(
-        `UPDATE clientes_comercios SET saldo_actual = ? WHERE id = ?`,
+        `UPDATE clientes_comercios SET current_balance = ? WHERE id = ?`,
         [nuevoSaldo, comercio.id],
       );
 
@@ -134,7 +122,7 @@ class RepartoService {
         comercio_id: comercio.id,
         comercio_nombre: comercio.nombre_fantasia,
         monto_cobrado: data.monto,
-        saldo_anterior: Number(comercio.saldo_actual),
+        saldo_anterior: Number(comercio.current_balance),
         nuevo_saldo: nuevoSaldo,
       };
     } catch (error) {
