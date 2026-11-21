@@ -17,19 +17,12 @@ class RepartoService {
     const params = fecha ? [distribuidoraId, fecha] : [distribuidoraId];
 
     const [rows] = await pool.query(
-      `SELECT p.id AS pedido_id,
-              p.numero_pedido,
-              p.estado,
-              p.condicion_pago,
-              p.total,
-              p.notas,
-              p.created_at,
-              c.id AS cliente_comercio_id,
-              COALESCE(c.nombre_fantasia, p.guest_nombre, 'Cliente Mostrador') AS comercio_nombre,
-              COALESCE(c.direccion, p.guest_direccion, 'Sin dirección') AS direccion,
-              COALESCE(c.telefono, p.guest_telefono, '') AS telefono,
-              COALESCE(NULLIF(TRIM(c.zona), ''), 'General') AS zona_reparto,
-              COALESCE(c.saldo_actual, 0) AS saldo_cuenta_corriente
+      `SELECT p.*,
+              c.nombre_fantasia AS cli_nombre,
+              c.direccion AS cli_direccion,
+              c.telefono AS cli_telefono,
+              c.saldo_actual AS cli_saldo,
+              c.zona AS cli_zona
        FROM pedidos p
        LEFT JOIN clientes_comercios c ON p.cliente_comercio_id = c.id
        WHERE p.distribuidora_id = ?
@@ -41,8 +34,11 @@ class RepartoService {
     );
 
     const zonasMap = new Map();
+
     for (const row of rows) {
-      const zona = row.zona_reparto || "General";
+      const zona =
+        (row.cli_zona || row.zona_reparto || "General").trim() || "General";
+
       if (!zonasMap.has(zona)) {
         zonasMap.set(zona, {
           zona,
@@ -51,10 +47,35 @@ class RepartoService {
           paradas: [],
         });
       }
+
+      const parada = {
+        pedido_id: row.id,
+        numero_pedido: row.numero_pedido,
+        estado: row.estado,
+        condicion_pago: row.condicion_pago,
+        total: Number(row.total || 0),
+        notas: row.notas,
+        created_at: row.created_at,
+        cliente_comercio_id: row.cliente_comercio_id,
+        comercio_nombre:
+          row.cli_nombre ||
+          row.guest_nombre ||
+          row.cliente_nombre ||
+          "Cliente Mostrador",
+        direccion:
+          row.cli_direccion ||
+          row.guest_direccion ||
+          row.direccion_entrega ||
+          "Sin dirección",
+        telefono: row.cli_telefono || row.guest_telefono || "",
+        zona_reparto: zona,
+        saldo_cuenta_corriente: Number(row.cli_saldo || 0),
+      };
+
       const grupo = zonasMap.get(zona);
       grupo.cantidad_paradas += 1;
-      grupo.total_reparto_zona += Number(row.total || 0);
-      grupo.paradas.push(row);
+      grupo.total_reparto_zona += parada.total;
+      grupo.paradas.push(parada);
     }
 
     return Array.from(zonasMap.values()).sort((a, b) =>

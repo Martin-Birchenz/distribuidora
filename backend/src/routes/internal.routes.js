@@ -2,9 +2,11 @@ const { Router } = require("express");
 const multer = require("multer");
 const catalogoController = require("../controllers/catalogo.controller");
 const clienteController = require("../controllers/cliente.controller");
+const pedidoController = require("../controllers/pedido.controller");
 const { authenticate, requireRole } = require("../middlewares/auth.middleware");
 const { requireInternalTenant } = require("../middlewares/tenant.middleware");
 const { validate } = require("../middlewares/validate.middleware");
+const { sendSuccess } = require("../middlewares/response.middleware");
 const {
   createCategoriaSchema,
   createProductoSchema,
@@ -15,13 +17,6 @@ const {
   createClienteSchema,
   updateClienteSchema,
 } = require("../schemas/cliente.schema");
-
-const router = Router();
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB máx
-});
-const pedidoController = require("../controllers/pedido.controller");
 const {
   crearPedidoInternoSchema,
   cambiarEstadoPedidoSchema,
@@ -33,7 +28,12 @@ const aiParserService = require("../services/aiParser.service");
 const devolucionService = require("../services/devolucion.service");
 const repartoService = require("../services/reparto.service");
 const dashboardService = require("../services/dashboard.service");
-const { sendSuccess } = require("../middlewares/response.middleware");
+
+const router = Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB máx
+});
 
 router.use(authenticate, requireInternalTenant);
 
@@ -47,6 +47,10 @@ router.post(
 );
 
 router.get("/productos", catalogoController.getProductosInterno);
+router.get(
+  "/productos/plantilla-excel",
+  catalogoController.descargarPlantillaExcel,
+);
 router.post(
   "/productos",
   requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),
@@ -86,36 +90,16 @@ router.patch(
   validate(updateClienteSchema),
   clienteController.actualizar,
 );
-// Pedidos y Comanda Consolidada de Camión
+
+// Pedidos, Comanda Consolidada, Remito PDF, IA WhatsApp y Devoluciones
 router.get("/pedidos", pedidoController.listar);
 router.get("/pedidos/hoja-carga", pedidoController.hojaCarga);
 router.get("/pedidos/:id", pedidoController.detalle);
+router.get("/pedidos/:id/remito-pdf", pedidoController.descargarRemitoPdf);
 router.post(
   "/pedidos",
   validate(crearPedidoInternoSchema),
   pedidoController.crearInterno,
-);
-router.patch(
-  "/pedidos/:id/estado",
-  requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),
-  validate(cambiarEstadoPedidoSchema),
-  pedidoController.cambiarEstado,
-);
-
-// Cuentas Corrientes y Cobranzas
-router.get("/cuentas-corrientes/resumen", pedidoController.getResumenDeudores);
-router.get(
-  "/cuentas-corrientes/:clienteId",
-  pedidoController.getCuentaCorrienteCliente,
-);
-router.post(
-  "/cuentas-corrientes/cobranzas",
-  validate(registrarCobranzaSchema),
-  pedidoController.postCobranza,
-);
-router.get(
-  "/productos/plantilla-excel",
-  catalogoController.descargarPlantillaExcel,
 );
 router.post(
   "/pedidos/parse-whatsapp",
@@ -143,12 +127,15 @@ router.post(
     }
   },
 );
-
-router.get("/pedidos/:id/remito-pdf", pedidoController.descargarRemitoPdf);
-
+router.patch(
+  "/pedidos/:id/estado",
+  requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),
+  validate(cambiarEstadoPedidoSchema),
+  pedidoController.cambiarEstado,
+);
 router.post(
   "/pedidos/:id/devoluciones",
-  requireRole(["ADMIN_DIST", "DEPOSITO"]),
+  requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),
   async (req, res, next) => {
     try {
       const result = await devolucionService.procesarDevolucion(
@@ -168,6 +155,19 @@ router.post(
   },
 );
 
+// Cuentas Corrientes y Cobranzas
+router.get("/cuentas-corrientes/resumen", pedidoController.getResumenDeudores);
+router.get(
+  "/cuentas-corrientes/:clienteId",
+  pedidoController.getCuentaCorrienteCliente,
+);
+router.post(
+  "/cuentas-corrientes/cobranzas",
+  validate(registrarCobranzaSchema),
+  pedidoController.postCobranza,
+);
+
+// Hoja de Ruta y Cobranza en Calle
 router.get("/reparto/hoja-ruta", async (req, res, next) => {
   try {
     const fecha = req.query.fecha || null;
@@ -194,9 +194,10 @@ router.post("/reparto/cobros", async (req, res, next) => {
   }
 });
 
+// Dashboard Ejecutivo
 router.get(
   "/dashboard/resumen",
-  requireRole(["ADMIN_DIST", "SUPERADMIN"]),
+  requireRole("SUPERADMIN", "ADMIN"),
   async (req, res, next) => {
     try {
       const data = await dashboardService.obtenerResumenEjecutivo(
