@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useParams, Link } from "react-router-dom";
-import { Store, ShieldCheck, Phone, Sparkles, Lock } from "lucide-react";
+import { Store, ArrowUpRight } from "lucide-react";
 import api from "../config/api";
 
 export default function PublicB2BLayout() {
@@ -36,12 +36,10 @@ export default function PublicB2BLayout() {
         if (payload.theme?.accentColor) {
           root.style.setProperty("--color-accent", payload.theme.accentColor);
         }
-        document.title = `${payload.distribuidora?.nombreFantasia || "Tienda"} | Catálogo Mayorista B2B`;
+        document.title = `${payload.distribuidora?.nombreFantasia || "Tienda"} | Pedidos Online`;
       } catch (err) {
         if (!active) return;
-        setError(
-          err.response?.data?.message || "Portal mayorista no disponible",
-        );
+        setError(err.response?.data?.message || "Portal no disponible");
       } finally {
         if (active) setLoading(false);
       }
@@ -76,49 +74,18 @@ export default function PublicB2BLayout() {
 
   const dist = config.distribuidora || {};
   const primary = config.theme?.primaryColor || "#0f172a";
-  const accent = config.theme?.accentColor || "#f59e0b";
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Barra superior informativa */}
-      <div
-        style={{ backgroundColor: primary }}
-        className="text-white/90 text-[11px] font-medium"
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-1.5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4 truncate">
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck
-                className="w-3.5 h-3.5 shrink-0"
-                style={{ color: accent }}
-              />
-              Abastecimiento Directo a Comercios y Minoristas
-            </span>
-            {dist.telefono && (
-              <span className="hidden sm:inline-flex items-center gap-1 text-white/75">
-                <Phone className="w-3 h-3" /> {dist.telefono}
-              </span>
-            )}
-          </div>
-
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-1 text-white/75 hover:text-white transition shrink-0"
-          >
-            <Lock className="w-3 h-3" /> Panel Interno
-          </Link>
-        </div>
-      </div>
-
-      {/* Header Principal Blanco con acento de marca */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-2xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+    <div className="min-h-screen flex flex-col bg-slate-50/70 text-slate-900">
+      {/* Header único, limpio y con identidad de la distribuidora */}
+      <header className="bg-white border-b border-slate-200/90">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3.5 min-w-0">
             {config.theme?.logoUrl ? (
               <img
                 src={config.theme.logoUrl}
                 alt={dist.nombreFantasia}
-                className="h-11 w-11 rounded-2xl border border-slate-200 bg-white p-1 object-contain shrink-0 shadow-2xs"
+                className="h-11 w-11 rounded-2xl border border-slate-200 bg-white p-1 object-contain shrink-0"
               />
             ) : (
               <div
@@ -130,52 +97,40 @@ export default function PublicB2BLayout() {
             )}
 
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight truncate">
-                  {dist.nombreFantasia}
-                </h1>
-                <span
-                  style={{ backgroundColor: `${primary}14`, color: primary }}
-                  className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
-                >
-                  <Sparkles className="w-2.5 h-2.5" /> Tienda Oficial
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 truncate">
-                {dist.direccion
-                  ? `${dist.direccion} • Pedidos online con entrega programada`
-                  : "Catálogo digital con precios mayoristas y minoristas actualizados"}
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Catálogo Digital de Pedidos
               </p>
+              <h2 className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight truncate">
+                {dist.nombreFantasia}
+              </h2>
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 text-right shrink-0">
-            <div className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200/70">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Modalidad
-              </p>
-              <p className="text-xs font-bold text-slate-800">
-                Compra Directa / Cuenta Corriente
-              </p>
-            </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="hidden md:inline-block text-xs text-slate-500">
+              Armá tu pedido y recibilo en tu comercio
+            </span>
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 text-xs font-semibold transition"
+            >
+              Staff <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
         </div>
       </header>
 
-      {/* Contenido del Catálogo B2B */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+      {/* Catálogo y acciones principales del comercio */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5">
         <Outlet context={{ bootstrap: config }} />
       </main>
 
-      {/* Footer limpio */}
-      <footer className="border-t border-slate-200 bg-white py-5 mt-10">
+      <footer className="border-t border-slate-200/80 bg-white py-4 mt-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
-          <span className="font-semibold text-slate-600">
+          <span className="font-medium text-slate-600">
             {dist.nombreFantasia}
           </span>
-          <span>
-            Pedidos Mayoristas B2B • Precios sujetos a disponibilidad de stock
-          </span>
+          <span>Precios y stock actualizados en tiempo real</span>
         </div>
       </footer>
     </div>
