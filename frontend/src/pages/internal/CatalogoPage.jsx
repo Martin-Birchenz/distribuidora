@@ -1,33 +1,58 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Search,
-  Upload,
   Plus,
   Minus,
   FileSpreadsheet,
   CheckCircle2,
   AlertCircle,
+  PackagePlus,
+  X,
 } from "lucide-react";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
+
+const INITIAL_PRODUCTO = {
+  sku: "",
+  nombre: "",
+  marca: "",
+  categoria_id: "",
+  unidad_venta: "Bulto x10",
+  costo_reposicion: 0,
+  precio_mayorista: 0,
+  precio_minorista: 0,
+  precio_especial: 0,
+  stock_actual: 0,
+  stock_minimo: 5,
+  visible_en_web: true,
+};
 
 export default function CatalogoPage() {
   const { user } = useAuth();
   const canEdit = ["SUPERADMIN", "ADMIN", "DEPOSITO"].includes(user?.role);
 
   const [productos, setProductos] = useState([]);
+  const [categorias, setCategorias] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [importStatus, setImportStatus] = useState(null);
   const [uploading, setUploading] = useState(false);
+
+  const [modalNuevoOpen, setModalNuevoOpen] = useState(false);
+  const [nuevoProd, setNuevoProd] = useState(INITIAL_PRODUCTO);
+  const [guardandoProd, setGuardandoProd] = useState(false);
 
   const fileInputRef = useRef(null);
 
   const fetchProductos = async () => {
     try {
       setLoading(true);
-      const { data } = await api.get("/internal/productos", { params: { q } });
-      setProductos(data.data || []);
+      const [resProd, resCat] = await Promise.all([
+        api.get("/internal/productos", { params: { q } }),
+        api.get("/internal/categorias"),
+      ]);
+      setProductos(resProd.data.data || []);
+      setCategorias(resCat.data.data || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -46,6 +71,36 @@ export default function CatalogoPage() {
       fetchProductos();
     } catch (err) {
       alert(err.response?.data?.message || "No se pudo ajustar stock");
+    }
+  };
+
+  const handleCrearProductoManual = async (e) => {
+    e.preventDefault();
+    setGuardandoProd(true);
+    try {
+      await api.post("/internal/productos", {
+        ...nuevoProd,
+        categoria_id: nuevoProd.categoria_id
+          ? Number(nuevoProd.categoria_id)
+          : null,
+        costo_reposicion: Number(nuevoProd.costo_reposicion || 0),
+        precio_mayorista: Number(nuevoProd.precio_mayorista),
+        precio_minorista: Number(
+          nuevoProd.precio_minorista || nuevoProd.precio_mayorista,
+        ),
+        precio_especial: Number(
+          nuevoProd.precio_especial || nuevoProd.precio_mayorista,
+        ),
+        stock_actual: Number(nuevoProd.stock_actual || 0),
+        stock_minimo: Number(nuevoProd.stock_minimo || 5),
+      });
+      setModalNuevoOpen(false);
+      setNuevoProd(INITIAL_PRODUCTO);
+      fetchProductos();
+    } catch (err) {
+      alert(err.response?.data?.message || "Error al crear producto");
+    } finally {
+      setGuardandoProd(false);
     }
   };
 
@@ -80,19 +135,6 @@ export default function CatalogoPage() {
     }
   };
 
-  const handleDescargarPlantilla = async () => {
-    const response = await api.get("/internal/productos/plantilla-excel", {
-      responseType: "blob",
-    });
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", "plantilla_catalogo_distribuidora.xlsx");
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -101,12 +143,21 @@ export default function CatalogoPage() {
             Catálogo y Control de Stock
           </h1>
           <p className="text-xs text-slate-500">
-            Precios por lista e inventario en tiempo real
+            Carga manual, importación inteligente de Excel e inventario en
+            tiempo real
           </p>
         </div>
 
         {canEdit && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setModalNuevoOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm cursor-pointer"
+            >
+              <PackagePlus className="w-4 h-4" />
+              Nuevo Producto
+            </button>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -120,13 +171,7 @@ export default function CatalogoPage() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm cursor-pointer disabled:opacity-60"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              {uploading ? "Importando..." : "Importar / Actualizar Excel"}
-            </button>
-            <button
-              onClick={handleDescargarPlantilla}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
-            >
-              Descargar Plantilla Excel
+              {uploading ? "Importando..." : "Importar Excel"}
             </button>
           </div>
         )}
@@ -193,9 +238,8 @@ export default function CatalogoPage() {
               ) : productos.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="py-8 text-center text-slate-400">
-                    Sin productos. Subí tu plantilla Excel con columnas: SKU,
-                    Nombre, Categoria, Unidad_Venta, Precio_Minorista,
-                    Precio_Mayorista, Precio_Especial, Stock_Inicial.
+                    Sin productos cargados. Usá "Nuevo Producto" o subí tu Excel
+                    (.xlsx / .csv).
                   </td>
                 </tr>
               ) : (
@@ -208,6 +252,7 @@ export default function CatalogoPage() {
                       <div className="text-xs text-slate-500">
                         <span className="font-mono">{p.sku}</span> •{" "}
                         {p.unidad_venta}
+                        {p.categoria_nombre ? ` • ${p.categoria_nombre}` : ""}
                       </div>
                     </td>
                     <td className="py-3 px-4 font-bold text-slate-900">
@@ -257,6 +302,244 @@ export default function CatalogoPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal Alta Manual de Producto */}
+      {modalNuevoOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <form
+            onSubmit={handleCrearProductoManual}
+            className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl my-8"
+          >
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-extrabold text-slate-900 text-base">
+                Alta Manual de Producto
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModalNuevoOpen(false)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Código / SKU *
+                </label>
+                <input
+                  required
+                  value={nuevoProd.sku}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, sku: e.target.value })
+                  }
+                  placeholder="Ej: BEB-010"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Presentación *
+                </label>
+                <input
+                  required
+                  value={nuevoProd.unidad_venta}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, unidad_venta: e.target.value })
+                  }
+                  placeholder="Ej: Pack x6 / Bulto x10"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block font-bold text-slate-700 mb-1">
+                  Nombre del Producto *
+                </label>
+                <input
+                  required
+                  value={nuevoProd.nombre}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, nombre: e.target.value })
+                  }
+                  placeholder="Ej: Gaseosa Cola 2.25L"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Marca
+                </label>
+                <input
+                  value={nuevoProd.marca}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, marca: e.target.value })
+                  }
+                  placeholder="Ej: Coca-Cola"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Categoría
+                </label>
+                <select
+                  value={nuevoProd.categoria_id}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, categoria_id: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                >
+                  <option value="">General</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Costo ($)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={nuevoProd.costo_reposicion}
+                  onChange={(e) =>
+                    setNuevoProd({
+                      ...nuevoProd,
+                      costo_reposicion: e.target.value,
+                    })
+                  }
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Mayorista ($) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  required
+                  value={nuevoProd.precio_mayorista}
+                  onChange={(e) =>
+                    setNuevoProd({
+                      ...nuevoProd,
+                      precio_mayorista: e.target.value,
+                    })
+                  }
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Minorista ($)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={nuevoProd.precio_minorista}
+                  onChange={(e) =>
+                    setNuevoProd({
+                      ...nuevoProd,
+                      precio_minorista: e.target.value,
+                    })
+                  }
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Especial ($)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={nuevoProd.precio_especial}
+                  onChange={(e) =>
+                    setNuevoProd({
+                      ...nuevoProd,
+                      precio_especial: e.target.value,
+                    })
+                  }
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Stock Inicial
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={nuevoProd.stock_actual}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, stock_actual: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Alerta Stock Mínimo
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={nuevoProd.stock_minimo}
+                  onChange={(e) =>
+                    setNuevoProd({ ...nuevoProd, stock_minimo: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                />
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={nuevoProd.visible_en_web}
+                onChange={(e) =>
+                  setNuevoProd({
+                    ...nuevoProd,
+                    visible_en_web: e.target.checked,
+                  })
+                }
+              />
+              Visible en el Portal Web de pedidos
+            </label>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <button
+                type="button"
+                onClick={() => setModalNuevoOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={guardandoProd}
+                className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+              >
+                {guardandoProd ? "Guardando..." : "Guardar Producto"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
