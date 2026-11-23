@@ -28,11 +28,12 @@ const aiParserService = require("../services/aiParser.service");
 const devolucionService = require("../services/devolucion.service");
 const repartoService = require("../services/reparto.service");
 const dashboardService = require("../services/dashboard.service");
+const arcaFacturacionService = require("../services/arcaFacturacion.service");
 
 const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB máx
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 router.use(authenticate, requireInternalTenant);
@@ -91,7 +92,7 @@ router.patch(
   clienteController.actualizar,
 );
 
-// Pedidos, Comanda Consolidada, Remito PDF, IA WhatsApp y Devoluciones
+// Pedidos, Comanda Consolidada, Remito PDF, IA WhatsApp, Devoluciones y Facturación Masiva ARCA
 router.get("/pedidos", pedidoController.listar);
 router.get("/pedidos/hoja-carga", pedidoController.hojaCarga);
 router.get("/pedidos/:id", pedidoController.detalle);
@@ -154,6 +155,25 @@ router.post(
     }
   },
 );
+router.post(
+  "/facturacion/lote",
+  requireRole("SUPERADMIN", "ADMIN"),
+  async (req, res, next) => {
+    try {
+      const result = await arcaFacturacionService.emitirLoteFacturas(
+        req.distribuidoraId,
+        req.body,
+      );
+      return sendSuccess(
+        res,
+        result,
+        `Lote ARCA procesado: ${result.total_emitidos} emitidos`,
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // Cuentas Corrientes y Cobranzas
 router.get("/cuentas-corrientes/resumen", pedidoController.getResumenDeudores);
@@ -167,7 +187,7 @@ router.post(
   pedidoController.postCobranza,
 );
 
-// Hoja de Ruta y Cobranza en Calle
+// Hoja de Ruta, Asignación de Camión, Cobranza en Calle y Cierre de Rendición
 router.get("/reparto/hoja-ruta", async (req, res, next) => {
   try {
     const fecha = req.query.fecha || null;
@@ -181,6 +201,22 @@ router.get("/reparto/hoja-ruta", async (req, res, next) => {
   }
 });
 
+router.post(
+  "/reparto/asignar-camion",
+  requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),
+  async (req, res, next) => {
+    try {
+      const result = await repartoService.asignarCamionLote(
+        req.distribuidoraId,
+        req.body,
+      );
+      return sendSuccess(res, result, "Camión asignado a los pedidos");
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 router.post("/reparto/cobros", async (req, res, next) => {
   try {
     const result = await repartoService.registrarCobroEnCalle(
@@ -193,6 +229,23 @@ router.post("/reparto/cobros", async (req, res, next) => {
     next(error);
   }
 });
+
+router.post(
+  "/reparto/rendiciones",
+  requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),
+  async (req, res, next) => {
+    try {
+      const result = await repartoService.cerrarRendicionReparto(
+        req.distribuidoraId,
+        req.user.userId,
+        req.body,
+      );
+      return sendSuccess(res, result, "Cierre de reparto registrado");
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // Dashboard Ejecutivo
 router.get(

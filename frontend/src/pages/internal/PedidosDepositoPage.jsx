@@ -5,6 +5,7 @@ import {
   XCircle,
   Printer,
   ClipboardList,
+  FileCheck2,
 } from "lucide-react";
 import api from "../../config/api";
 
@@ -14,6 +15,15 @@ export default function PedidosDepositoPage() {
   const [hojaCarga, setHojaCarga] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const [seleccionados, setSeleccionados] = useState([]);
+  const [facturandoLote, setFacturandoLote] = useState(false);
+  const [resultadoLoteArca, setResultadoLoteArca] = useState(null);
+
+  const [pedidoDev, setPedidoDev] = useState(null);
+  const [motivoDev, setMotivoDev] = useState("");
+  const [cantidadesDev, setCantidadesDev] = useState({});
+  const [guardandoDev, setGuardandoDev] = useState(false);
+
   const cargarPedidos = async () => {
     try {
       setLoading(true);
@@ -21,6 +31,7 @@ export default function PedidosDepositoPage() {
         params: { estado: filtroEstado },
       });
       setPedidos(data.data || []);
+      setSeleccionados([]);
     } catch (err) {
       console.error(err);
     } finally {
@@ -28,14 +39,58 @@ export default function PedidosDepositoPage() {
     }
   };
 
-  const [pedidoDev, setPedidoDev] = useState(null);
-  const [motivoDev, setMotivoDev] = useState("");
-  const [cantidadesDev, setCantidadesDev] = useState({});
-  const [guardandoDev, setGuardandoDev] = useState(false);
-
   useEffect(() => {
     cargarPedidos();
   }, [filtroEstado]);
+
+  const toggleSeleccion = (id) => {
+    setSeleccionados((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const toggleTodos = () => {
+    if (seleccionados.length === pedidos.length) {
+      setSeleccionados([]);
+    } else {
+      setSeleccionados(pedidos.map((p) => p.id));
+    }
+  };
+
+  const handleFacturarLoteArca = async () => {
+    if (seleccionados.length === 0) return;
+    setFacturandoLote(true);
+    try {
+      const { data } = await api.post("/internal/facturacion/lote", {
+        pedido_ids: seleccionados,
+        punto_venta: 1,
+      });
+      setResultadoLoteArca(data.data);
+      setSeleccionados([]);
+    } catch (err) {
+      alert(err.response?.data?.message || "Error al emitir lote ARCA");
+    } finally {
+      setFacturandoLote(false);
+    }
+  };
+
+  const handleAsignarCamionLote = async () => {
+    if (seleccionados.length === 0) return;
+    const camion = window.prompt(
+      "Ingresá nombre del camión o chofer (ej: Camión 1 - Juan):",
+    );
+    if (!camion || !camion.trim()) return;
+    try {
+      await api.post("/internal/reparto/asignar-camion", {
+        pedido_ids: seleccionados,
+        camion_asignado: camion.trim(),
+      });
+      alert(`Asignados ${seleccionados.length} pedidos a ${camion.trim()}`);
+      cargarPedidos();
+    } catch (err) {
+      alert(err.response?.data?.message || "Error al asignar camión");
+    }
+  };
 
   const cambiarEstado = async (id, estado) => {
     try {
@@ -93,7 +148,7 @@ export default function PedidosDepositoPage() {
     try {
       const { data } = await api.get("/internal/pedidos/hoja-carga");
       setHojaCarga(data.data);
-    } catch (err) {
+    } catch {
       alert("Error al generar la comanda consolidada");
     }
   };
@@ -110,7 +165,7 @@ export default function PedidosDepositoPage() {
       const pdfBlob = new Blob([response.data], { type: "application/pdf" });
       const url = window.URL.createObjectURL(pdfBlob);
       window.open(url, "_blank");
-    } catch (err) {
+    } catch {
       alert("No se pudo generar el remito PDF");
     }
   };
@@ -120,21 +175,86 @@ export default function PedidosDepositoPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900">
-            Pedidos y Carga de Camión
+            Pedidos, Carga y Facturación ARCA
           </h1>
           <p className="text-xs text-slate-500">
-            Consolidación automática de bultos para despacho
+            Consolidación de despacho, asignación de camiones y facturación
+            electrónica en lote
           </p>
         </div>
 
-        <button
-          onClick={abrirHojaCarga}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-primary text-white text-xs font-bold shadow cursor-pointer"
-        >
-          <Truck className="w-4 h-4" />
-          Generar Hoja de Carga Camión
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {seleccionados.length > 0 && (
+            <>
+              <button
+                onClick={handleAsignarCamionLote}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold shadow cursor-pointer"
+              >
+                <Truck className="w-4 h-4" />
+                Asignar Camión ({seleccionados.length})
+              </button>
+              <button
+                onClick={handleFacturarLoteArca}
+                disabled={facturandoLote}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold shadow cursor-pointer disabled:opacity-50"
+              >
+                <FileCheck2 className="w-4 h-4" />
+                {facturandoLote
+                  ? "Emitiendo CAE..."
+                  : `Facturar ARCA (${seleccionados.length})`}
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={abrirHojaCarga}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-primary text-white text-xs font-bold shadow cursor-pointer"
+          >
+            <Truck className="w-4 h-4" />
+            Hoja de Carga Camión
+          </button>
+        </div>
       </div>
+
+      {/* Resultado de Lote ARCA */}
+      {resultadoLoteArca && (
+        <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl space-y-2 text-xs">
+          <div className="flex justify-between items-center">
+            <h3 className="font-extrabold text-indigo-950 text-sm">
+              Lote ARCA/AFIP Procesado ({resultadoLoteArca.total_emitidos} CAE
+              autorizados)
+            </h3>
+            <button
+              onClick={() => setResultadoLoteArca(null)}
+              className="text-indigo-700 font-bold underline cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+          {resultadoLoteArca.emitidos.map((f) => (
+            <div
+              key={f.cae}
+              className="bg-white p-2 rounded-xl border border-indigo-100 flex justify-between"
+            >
+              <span>
+                <strong>
+                  {f.tipo_comprobante.replace("_", " ")}{" "}
+                  {f.comprobante_formateado}
+                </strong>{" "}
+                • {f.receptor} ({f.numero_pedido})
+              </span>
+              <span className="font-mono text-emerald-700 font-bold">
+                CAE: {f.cae} (Vto: {f.cae_vencimiento})
+              </span>
+            </div>
+          ))}
+          {resultadoLoteArca.errores.map((e, idx) => (
+            <p key={idx} className="text-rose-700 font-semibold">
+              • Pedido #{e.pedido_id}: {e.motivo}
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* Filtros rápidos */}
       <div className="flex flex-wrap gap-2">
@@ -159,7 +279,7 @@ export default function PedidosDepositoPage() {
         ))}
       </div>
 
-      {/* Comanda Consolidada de Carga por Camión */}
+      {/* Comanda Consolidada */}
       {hojaCarga && (
         <div className="bg-white p-5 rounded-2xl border-2 border-brand-primary shadow-md space-y-4">
           <div className="flex items-center justify-between border-b pb-3">
@@ -229,6 +349,16 @@ export default function PedidosDepositoPage() {
           <table className="w-full text-left text-sm border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+                <th className="py-3 px-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={
+                      pedidos.length > 0 &&
+                      seleccionados.length === pedidos.length
+                    }
+                    onChange={toggleTodos}
+                  />
+                </th>
                 <th className="py-3 px-4">Pedido / Origen</th>
                 <th className="py-3 px-4">Comercio / Dirección</th>
                 <th className="py-3 px-4">Total</th>
@@ -239,18 +369,28 @@ export default function PedidosDepositoPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="py-8 text-center text-slate-400">
+                  <td colSpan="6" className="py-8 text-center text-slate-400">
                     Cargando pedidos...
                   </td>
                 </tr>
               ) : (
                 pedidos.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/70">
+                    <td className="py-3 px-3">
+                      <input
+                        type="checkbox"
+                        checked={seleccionados.includes(p.id)}
+                        onChange={() => toggleSeleccion(p.id)}
+                      />
+                    </td>
                     <td className="py-3 px-4">
                       <div className="font-bold text-slate-900">
                         {p.numero_pedido}
                       </div>
-                      <div className="text-xs text-slate-500">{p.origen}</div>
+                      <div className="text-xs text-slate-500">
+                        {p.origen}{" "}
+                        {p.camion_asignado ? `• 🚚 ${p.camion_asignado}` : ""}
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <div className="font-semibold text-slate-800">
@@ -316,14 +456,12 @@ export default function PedidosDepositoPage() {
                       <button
                         onClick={() => abrirRemitoPdf(p.id, "a4")}
                         className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-semibold cursor-pointer"
-                        title="Descargar Remito A4"
                       >
                         PDF A4
                       </button>
                       <button
                         onClick={() => abrirRemitoPdf(p.id, "ticket")}
                         className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-semibold cursor-pointer"
-                        title="Imprimir Ticket 80mm"
                       >
                         Ticket
                       </button>
@@ -344,6 +482,8 @@ export default function PedidosDepositoPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal Devolución */}
       {pedidoDev && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
           <form

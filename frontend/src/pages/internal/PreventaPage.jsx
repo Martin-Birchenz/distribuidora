@@ -11,8 +11,18 @@ import {
   ShoppingBag,
   X,
   Pencil,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from "lucide-react";
 import api from "../../config/api";
+import {
+  guardarCacheLocal,
+  leerCacheLocal,
+  encolarPedidoOffline,
+  listarPedidosOffline,
+  eliminarPedidoOffline,
+} from "../../utils/offlineStore";
 
 const INITIAL_NUEVO_CLIENTE = {
   nombre_fantasia: "",
@@ -32,6 +42,11 @@ export default function PreventaPage() {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [colaOffline, setColaOffline] = useState([]);
+  const [conflictosSync, setConflictosSync] = useState([]);
+  const [sincronizando, setSincronizando] = useState(false);
+
   const [clienteId, setClienteId] = useState("");
   const [listaPrecio, setListaPrecio] = useState("MAYORISTA");
   const [condicionPago, setCondicionPago] = useState("CUENTA_CORRIENTE");
@@ -43,11 +58,9 @@ export default function PreventaPage() {
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Modal alta rápida comercio
   const [showNuevoCliente, setShowNuevoCliente] = useState(false);
   const [nuevoCliente, setNuevoCliente] = useState(INITIAL_NUEVO_CLIENTE);
 
-  // Modal edición rápida de límite de crédito
   const [showEditarTope, setShowEditarTope] = useState(false);
   const [nuevoTopeValor, setNuevoTopeValor] = useState(0);
   const [guardandoTope, setGuardandoTope] = useState(false);
@@ -56,6 +69,108 @@ export default function PreventaPage() {
   const [waAudio, setWaAudio] = useState(null);
   const [procesandoIA, setProcesandoIA] = useState(false);
   const [ambiguosIA, setAmbiguosIA] = useState([]);
+
+  const refrescarColaOffline = async () => {
+    const pendientes = await listarPedidosOffline();
+    setColaOffline(pendientes);
+    return pendientes;
+  };
+
+  const sincronizarColaOffline = async () => {
+    if (!navigator.onLine) return;
+    const pendientes = await listarPedidosOffline();
+    if (pendientes.length === 0) return;
+
+    setSincronizando(true);
+    const nuevosConflictos = [];
+
+    for (const item of pendientes) {
+      try {
+        await api.post("/internal/pedidos", item.payload);
+        await eliminarPedidoOffline(item.local_id);
+      } catch (err) {
+        const msgServidor =
+          err.response?.data?.message || "Error de red o validación";
+        if (
+          err.response &&
+          err.response.status >= 400 &&
+          err.response.status < 500
+        ) {
+          // Conflicto de negocio (ej: sin stock suficiente al recuperar señal)
+          nuevosConflictos.push({
+            local_id: item.local_id,
+            comercio: item.comercio_nombre,
+            motivo: msgServidor,
+          });
+          await eliminarPedidoOffline(item.local_id);
+        }
+      }
+    }
+
+    if (nuevosConflictos.length > 0) {
+      setConflictosSync((prev) => [...nuevosConflictos, ...prev]);
+    }
+    await refrescarColaOffline();
+    setSincronizando(false);
+    cargarDatos();
+  };
+
+  const cargarDatos = async () => {
+    try {
+      setLoading(true);
+      if (navigator.onLine) {
+        const [resCli, resProd] = await Promise.all([
+          api.get("/internal/clientes"),
+          api.get("/internal/productos?solo_con_stock=true"),
+        ]);
+        const cliData = resCli.data.data || [];
+        const prodData = resProd.data.data || [];
+        setClientes(cliData);
+        setProductos(prodData);
+        await guardarCacheLocal("clientes_cache", cliData);
+        await guardarCacheLocal("productos_cache", prodData);
+      } else {
+        const [cliCache, prodCache] = await Promise.all([
+          leerCacheLocal("clientes_cache"),
+          leerCacheLocal("productos_cache"),
+        ]);
+        setClientes(cliCache || []);
+        setProductos(prodCache || []);
+      }
+    } catch {
+      // Fallback automático a IndexedDB si falla la conexión móvil
+      const [cliCache, prodCache] = await Promise.all([
+        leerCacheLocal("clientes_cache"),
+        leerCacheLocal("productos_cache"),
+      ]);
+      if (cliCache || prodCache) {
+        setClientes(cliCache || []);
+        setProductos(prodCache || []);
+      } else {
+        setErrorMsg("Sin conexión y sin catálogo cacheado previamente");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarDatos();
+    refrescarColaOffline();
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      sincronizarColaOffline();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const handleProcesarWhatsAppIA = async () => {
     if (!waTexto.trim() && !waAudio) return;
@@ -69,9 +184,7 @@ export default function PreventaPage() {
       const { data } = await api.post(
         "/internal/pedidos/parse-whatsapp",
         formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        },
+        { headers: { "Content-Type": "multipart/form-data" } },
       );
 
       const { items_listos, items_ambiguos } = data.data;
@@ -92,26 +205,6 @@ export default function PreventaPage() {
       setProcesandoIA(false);
     }
   };
-
-  const cargarDatos = async () => {
-    try {
-      setLoading(true);
-      const [resCli, resProd] = await Promise.all([
-        api.get("/internal/clientes"),
-        api.get("/internal/productos?solo_con_stock=true"),
-      ]);
-      setClientes(resCli.data.data || []);
-      setProductos(resProd.data.data || []);
-    } catch (err) {
-      setErrorMsg("Error al cargar clientes o catálogo");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    cargarDatos();
-  }, []);
 
   const clienteSeleccionado = useMemo(
     () => clientes.find((c) => String(c.id) === String(clienteId)) || null,
@@ -204,29 +297,68 @@ export default function PreventaPage() {
       return;
     }
 
+    const payload = {
+      cliente_comercio_id: Number(clienteId),
+      lista_aplicada: listaPrecio,
+      condicion_pago: condicionPago,
+      notas: notas || null,
+      items: carrito.map((i) => ({
+        producto_id: i.producto_id,
+        cantidad: i.cantidad,
+      })),
+    };
+
+    // Modo Offline: persistir en IndexedDB para sincronizar al recuperar 4G
+    if (!navigator.onLine) {
+      const guardado = await encolarPedidoOffline({
+        comercio_nombre:
+          clienteSeleccionado?.nombre_fantasia || `Cliente #${clienteId}`,
+        total: totalPedido,
+        payload,
+      });
+      await refrescarColaOffline();
+      setResultadoPedido({
+        numeroPedido: guardado.local_id,
+        total: totalPedido,
+        estado: "GUARDADO OFFLINE (PENDIENTE DE SEÑAL)",
+        requiereAprobacionCredito: false,
+      });
+      setCarrito([]);
+      setNotas("");
+      return;
+    }
+
     setEnviando(true);
     setErrorMsg("");
     try {
-      const payload = {
-        cliente_comercio_id: Number(clienteId),
-        lista_aplicada: listaPrecio,
-        condicion_pago: condicionPago,
-        notas: notas || null,
-        items: carrito.map((i) => ({
-          producto_id: i.producto_id,
-          cantidad: i.cantidad,
-        })),
-      };
-
       const { data } = await api.post("/internal/pedidos", payload);
       setResultadoPedido(data.data);
       setCarrito([]);
       setNotas("");
       cargarDatos();
     } catch (err) {
-      setErrorMsg(
-        err.response?.data?.message || "No se pudo confirmar el pedido",
-      );
+      if (!err.response) {
+        // Si cayó la señal justo al apretar Confirmar, encolar en IndexedDB
+        const guardado = await encolarPedidoOffline({
+          comercio_nombre:
+            clienteSeleccionado?.nombre_fantasia || `Cliente #${clienteId}`,
+          total: totalPedido,
+          payload,
+        });
+        await refrescarColaOffline();
+        setResultadoPedido({
+          numeroPedido: guardado.local_id,
+          total: totalPedido,
+          estado: "GUARDADO OFFLINE (SIN SEÑAL)",
+          requiereAprobacionCredito: false,
+        });
+        setCarrito([]);
+        setNotas("");
+      } else {
+        setErrorMsg(
+          err.response?.data?.message || "No se pudo confirmar el pedido",
+        );
+      }
     } finally {
       setEnviando(false);
     }
@@ -270,14 +402,37 @@ export default function PreventaPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold text-slate-900">
             Toma de Pedido en Calle
           </h1>
-          <p className="text-xs text-slate-500">
-            Stock real y cuenta corriente en vivo
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {isOnline ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                <Wifi className="w-3 h-3" /> En línea (Sync activo)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                <WifiOff className="w-3 h-3" /> Modo Offline (IndexedDB activo)
+              </span>
+            )}
+            {colaOffline.length > 0 && (
+              <button
+                type="button"
+                onClick={sincronizarColaOffline}
+                disabled={!isOnline || sincronizando}
+                className="inline-flex items-center gap-1 text-[11px] font-bold bg-indigo-600 text-white px-2.5 py-0.5 rounded-full cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`w-3 h-3 ${sincronizando ? "animate-spin" : ""}`}
+                />
+                {sincronizando
+                  ? "Sincronizando..."
+                  : `Sincronizar ${colaOffline.length} pendiente(s)`}
+              </button>
+            )}
+          </div>
         </div>
         <button
           onClick={() => setShowNuevoCliente(true)}
@@ -288,7 +443,26 @@ export default function PreventaPage() {
         </button>
       </div>
 
-      {/* Confirmación exitosa */}
+      {/* Alertas de conflictos al sincronizar pedidos offline */}
+      {conflictosSync.length > 0 && (
+        <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-900 space-y-1">
+          <div className="flex justify-between items-center font-bold">
+            <span>Conflictos detectados al sincronizar pedidos offline:</span>
+            <button
+              onClick={() => setConflictosSync([])}
+              className="underline cursor-pointer"
+            >
+              Descartar
+            </button>
+          </div>
+          {conflictosSync.map((c) => (
+            <p key={c.local_id}>
+              • <strong>{c.comercio}</strong> ({c.local_id}): {c.motivo}
+            </p>
+          ))}
+        </div>
+      )}
+
       {resultadoPedido && (
         <div
           className={`p-4 rounded-2xl border space-y-1 ${
@@ -312,12 +486,6 @@ export default function PreventaPage() {
             </strong>{" "}
             • Estado: <strong>{resultadoPedido.estado}</strong>
           </p>
-          {resultadoPedido.requiereAprobacionCredito && (
-            <p className="text-xs text-amber-800 font-semibold">
-              Retenido por superar el límite de crédito: no descuenta stock ni
-              se despacha hasta que Administración lo apruebe.
-            </p>
-          )}
         </div>
       )}
 
@@ -328,9 +496,7 @@ export default function PreventaPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Columna Izquierda: Comercio + Catálogo Rápido */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Selector de Comercio */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
             <label className="flex items-center gap-2 text-xs font-bold uppercase text-slate-500">
               <Store className="w-4 h-4 text-brand-primary" />
@@ -368,16 +534,6 @@ export default function PreventaPage() {
                       "es-AR",
                     )}
                   </strong>
-                  {Number(clienteSeleccionado.deuda_pendiente_aprobacion) >
-                    0 && (
-                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
-                      + $
-                      {Number(
-                        clienteSeleccionado.deuda_pendiente_aprobacion,
-                      ).toLocaleString("es-AR")}{" "}
-                      retenido por tope
-                    </span>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -390,7 +546,6 @@ export default function PreventaPage() {
                   <button
                     type="button"
                     onClick={abrirModalTope}
-                    title="Configurar límite de crédito"
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-300 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 cursor-pointer"
                   >
                     <Pencil className="w-3 h-3" />
@@ -460,7 +615,7 @@ export default function PreventaPage() {
               <button
                 type="button"
                 onClick={handleProcesarWhatsAppIA}
-                disabled={procesandoIA}
+                disabled={procesandoIA || !isOnline}
                 className="px-4 py-2 rounded-xl bg-indigo-900 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
               >
                 {procesandoIA ? "Analizando..." : "Armar Carrito IA"}
@@ -473,7 +628,6 @@ export default function PreventaPage() {
             )}
           </div>
 
-          {/* Buscador y Lista de Productos */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -572,7 +726,6 @@ export default function PreventaPage() {
           </div>
         </div>
 
-        {/* Columna Derecha: Resumen y Cierre del Pedido */}
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between h-fit sticky top-4 space-y-4">
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
@@ -665,13 +818,17 @@ export default function PreventaPage() {
               disabled={enviando || carrito.length === 0 || !clienteId}
               className="w-full py-3.5 rounded-xl bg-brand-primary text-white font-bold text-sm shadow-md hover:opacity-95 disabled:opacity-50 transition cursor-pointer"
             >
-              {enviando ? "Confirmando..." : "Confirmar Pedido"}
+              {enviando
+                ? "Confirmando..."
+                : isOnline
+                  ? "Confirmar Pedido"
+                  : "Guardar Pedido Offline"}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Modal Editar Límite de Crédito del Comercio Seleccionado */}
+      {/* Modal Editar Límite de Crédito */}
       {showEditarTope && clienteSeleccionado && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl space-y-4">

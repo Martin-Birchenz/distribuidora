@@ -11,6 +11,20 @@ const registrarCobroSchema = z.object({
   notas: z.string().max(150).optional().nullable(),
 });
 
+const asignarCamionSchema = z.object({
+  pedido_ids: z.array(z.number().int().positive()).min(1),
+  camion_asignado: z.string().min(2, "Indicá el camión o chofer"),
+});
+
+const cerrarRendicionSchema = z.object({
+  camion_asignado: z.string().min(1),
+  fecha_reparto: z.string().optional(),
+  efectivo_rendido: z.number().min(0),
+  transferencia_rendida: z.number().min(0),
+  cheques_rendidos: z.number().min(0),
+  observaciones: z.string().max(255).optional().nullable(),
+});
+
 class RepartoService {
   async obtenerHojaDeRuta(distribuidoraId, fecha = null) {
     const filtroFecha = fecha ? "AND DATE(p.created_at) = ?" : "";
@@ -23,6 +37,7 @@ class RepartoService {
               p.condicion_pago,
               p.total,
               p.notas,
+              p.camion_asignado,
               p.created_at,
               p.cliente_comercio_id,
               COALESCE(c.nombre_fantasia, p.guest_nombre, 'Cliente Mostrador') AS comercio_nombre,
@@ -34,7 +49,7 @@ class RepartoService {
        LEFT JOIN clientes_comercios c ON p.cliente_comercio_id = c.id
        WHERE p.distribuidora_id = ?
          AND p.deleted_at IS NULL
-         AND p.estado IN ('CONFIRMADO', 'PREPARADO', 'EN_REPARTO')
+         AND p.estado IN ('CONFIRMADO', 'DESPACHADO', 'PREPARADO', 'EN_REPARTO')
          ${filtroFecha}
        ORDER BY p.id DESC`,
       params,
@@ -43,11 +58,16 @@ class RepartoService {
     const zonasMap = new Map();
 
     for (const row of rows) {
-      const zona = row.zona_reparto || "General";
+      const camionLabel = row.camion_asignado
+        ? ` [${row.camion_asignado}]`
+        : "";
+      const claveGrupo = `${row.zona_reparto || "General"}${camionLabel}`;
 
-      if (!zonasMap.has(zona)) {
-        zonasMap.set(zona, {
-          zona,
+      if (!zonasMap.has(claveGrupo)) {
+        zonasMap.set(claveGrupo, {
+          zona: claveGrupo,
+          zona_base: row.zona_reparto || "General",
+          camion_asignado: row.camion_asignado || "Sin camión asignado",
           cantidad_paradas: 0,
           total_reparto_zona: 0,
           paradas: [],
@@ -60,7 +80,7 @@ class RepartoService {
         saldo_cuenta_corriente: Number(row.saldo_cuenta_corriente || 0),
       };
 
-      const grupo = zonasMap.get(zona);
+      const grupo = zonasMap.get(claveGrupo);
       grupo.cantidad_paradas += 1;
       grupo.total_reparto_zona += parada.total;
       grupo.paradas.push(parada);
@@ -69,6 +89,20 @@ class RepartoService {
     return Array.from(zonasMap.values()).sort((a, b) =>
       a.zona.localeCompare(b.zona),
     );
+  }
+
+  async asignarCamionLote(distribuidoraId, payload) {
+    const data = asignarCamionSchema.parse(payload);
+    await pool.query(
+      `UPDATE pedidos
+       SET camion_asignado = ?
+       WHERE distribuidora_id = ? AND id IN (?) AND deleted_at IS NULL`,
+      [data.camion_asignado.trim(), distribuidoraId, data.pedido_ids],
+    );
+    return {
+      actualizados: data.pedido_ids.length,
+      camion_asignado: data.camion_asignado.trim(),
+    };
   }
 
   async registrarCobroEnCalle(distribuidoraId, usuarioId, payload) {
@@ -131,6 +165,59 @@ class RepartoService {
     } finally {
       connection.release();
     }
+  }
+
+  async cerrarRendicionReparto(distribuidoraId, usuarioId, payload) {
+    const data = cerrarRendicionSchema.parse(payload);
+    const fecha = data.fecha_reparto || new Date().toISOString().slice(0, 10);
+
+    // Calcular total esperado de pedidos entregados contra entrega o cobrados hoy para ese camión
+    const [[esperadoRow]] = await pool.query(
+      `SELECT COALESCE(SUM(total), 0) AS total_contado
+       FROM pedidos
+       WHERE distribuidora_id = ?
+         AND deleted_at IS NULL
+         AND estado = 'ENTREGADO'
+         AND condicion_pago IN ('CONTADO_ENTREGA', 'TRANSFERENCIA')
+         AND COALESCE(camion_asignado, 'Sin camión asignado') = ?
+         AND DATE(updated_at) = ?`,
+      [distribuidoraId, data.camion_asignado, fecha],
+    );
+
+    const totalEsperado = Number(esperadoRow.total_contado || 0);
+    const totalRendido =
+      data.efectivo_rendido +
+      data.transferencia_rendida +
+      data.cheques_rendidos;
+    const diferenciaCaja = Number((totalRendido - totalEsperado).toFixed(2));
+
+    const [insertRes] = await pool.query(
+      `INSERT INTO reparto_rendiciones
+       (distribuidora_id, usuario_id, camion_asignado, fecha_reparto, total_esperado,
+        efectivo_rendido, transferencia_rendida, cheques_rendidos, diferencia_caja, observaciones)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        distribuidoraId,
+        usuarioId,
+        data.camion_asignado,
+        fecha,
+        totalEsperado,
+        data.efectivo_rendido,
+        data.transferencia_rendida,
+        data.cheques_rendidos,
+        diferenciaCaja,
+        data.observaciones || null,
+      ],
+    );
+
+    return {
+      rendicion_id: insertRes.insertId,
+      camion_asignado: data.camion_asignado,
+      fecha_reparto: fecha,
+      total_esperado: totalEsperado,
+      total_rendido: totalRendido,
+      diferencia_caja: diferenciaCaja,
+    };
   }
 }
 

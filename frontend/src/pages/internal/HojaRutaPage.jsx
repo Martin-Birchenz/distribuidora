@@ -4,11 +4,21 @@ import api from "../../config/api.js";
 export default function HojaRutaPage() {
   const [zonas, setZonas] = useState([]);
   const [loading, setLoading] = useState(true);
+
   const [cobroModal, setCobroModal] = useState(null);
   const [monto, setMonto] = useState("");
   const [metodoPago, setMetodoPago] = useState("EFECTIVO");
   const [notas, setNotas] = useState("");
   const [guardando, setGuardando] = useState(false);
+
+  // Modal Rendición / Cierre de Reparto
+  const [rendicionModal, setRendicionModal] = useState(false);
+  const [camionRendicion, setCamionRendicion] = useState("Sin camión asignado");
+  const [efectivoRendido, setEfectivoRendido] = useState("0");
+  const [transferenciaRendida, setTransferenciaRendida] = useState("0");
+  const [chequesRendidos, setChequesRendidos] = useState("0");
+  const [obsRendicion, setObsRendicion] = useState("");
+  const [guardandoRendicion, setGuardandoRendicion] = useState(false);
 
   const cargarHojaRuta = async () => {
     setLoading(true);
@@ -70,23 +80,58 @@ export default function HojaRutaPage() {
     }
   };
 
+  const handleCerrarRendicion = async (e) => {
+    e.preventDefault();
+    setGuardandoRendicion(true);
+    try {
+      const { data } = await api.post("/internal/reparto/rendiciones", {
+        camion_asignado: camionRendicion,
+        efectivo_rendido: Number(efectivoRendido || 0),
+        transferencia_rendida: Number(transferenciaRendida || 0),
+        cheques_rendidos: Number(chequesRendidos || 0),
+        observaciones: obsRendicion || null,
+      });
+      const res = data.data;
+      alert(
+        `Rendición cerrada (${res.camion_asignado}).\nEsperado contado: $${res.total_esperado.toLocaleString(
+          "es-AR",
+        )}\nTotal rendido: $${res.total_rendido.toLocaleString(
+          "es-AR",
+        )}\nDiferencia de caja: $${res.diferencia_caja.toLocaleString("es-AR")}`,
+      );
+      setRendicionModal(false);
+    } catch (err) {
+      alert(err.response?.data?.message || "Error al cerrar rendición");
+    } finally {
+      setGuardandoRendicion(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-extrabold text-slate-900">
-            Hoja de Ruta y Cobranza
+            Hoja de Ruta y Rendición de Reparto
           </h1>
           <p className="text-xs text-slate-500">
-            Paradas agrupadas por zona de reparto
+            Paradas agrupadas por zona/camión, cobranza en calle y arqueo final
           </p>
         </div>
-        <button
-          onClick={cargarHojaRuta}
-          className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold cursor-pointer"
-        >
-          Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setRendicionModal(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold cursor-pointer"
+          >
+            Cerrar / Rendir Reparto
+          </button>
+          <button
+            onClick={cargarHojaRuta}
+            className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold cursor-pointer"
+          >
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -103,7 +148,7 @@ export default function HojaRutaPage() {
           >
             <div className="bg-slate-900 text-white px-4 py-2.5 flex justify-between items-center">
               <span className="text-xs font-bold uppercase tracking-wide">
-                📍 Zona: {z.zona}
+                📍 Zona / Camión: {z.zona}
               </span>
               <span className="text-xs font-semibold text-amber-300">
                 {z.cantidad_paradas} paradas • $
@@ -177,6 +222,7 @@ export default function HojaRutaPage() {
         ))
       )}
 
+      {/* Modal Cobro en Calle */}
       {cobroModal && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
           <form
@@ -239,6 +285,105 @@ export default function HojaRutaPage() {
                 className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
               >
                 {guardando ? "Guardando..." : "Confirmar Cobro"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal Rendición / Cierre de Reparto */}
+      {rendicionModal && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+          <form
+            onSubmit={handleCerrarRendicion}
+            className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3 shadow-xl"
+          >
+            <h3 className="font-bold text-slate-900 text-sm">
+              Cierre y Rendición de Reparto
+            </h3>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Camión / Chofer
+              </label>
+              <input
+                type="text"
+                required
+                value={camionRendicion}
+                onChange={(e) => setCamionRendicion(e.target.value)}
+                placeholder="Ej: Camión 1 - Juan o Sin camión asignado"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Efectivo ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={efectivoRendido}
+                  onChange={(e) => setEfectivoRendido(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Transf. ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={transferenciaRendida}
+                  onChange={(e) => setTransferenciaRendida(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Cheques ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={chequesRendidos}
+                  onChange={(e) => setChequesRendidos(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Observaciones de caja / envases
+              </label>
+              <input
+                type="text"
+                value={obsRendicion}
+                onChange={(e) => setObsRendicion(e.target.value)}
+                placeholder="Ej: 12 cajones vacíos devueltos sin novedad"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRendicionModal(false)}
+                className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={guardandoRendicion}
+                className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+              >
+                {guardandoRendicion ? "Cerrando..." : "Registrar Arqueo"}
               </button>
             </div>
           </form>
