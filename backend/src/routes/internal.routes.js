@@ -3,6 +3,7 @@ const multer = require("multer");
 const catalogoController = require("../controllers/catalogo.controller");
 const clienteController = require("../controllers/cliente.controller");
 const pedidoController = require("../controllers/pedido.controller");
+const whatsappController = require("../controllers/whatsapp.controller");
 const { authenticate, requireRole } = require("../middlewares/auth.middleware");
 const { requireInternalTenant } = require("../middlewares/tenant.middleware");
 const { validate } = require("../middlewares/validate.middleware");
@@ -34,7 +35,7 @@ const arcaFacturacionService = require("../services/arcaFacturacion.service");
 const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 router.use(authenticate, requireInternalTenant);
@@ -170,6 +171,11 @@ router.post("/pedidos/parse-whatsapp", async (req, res, next) => {
     next(error);
   }
 });
+router.post(
+  "/pedidos/whatsapp-asistente/simular",
+  upload.single("audio"),
+  whatsappController.simularMensajeInterno,
+);
 router.patch(
   "/pedidos/:id/estado",
   requireRole("SUPERADMIN", "ADMIN", "DEPOSITO"),

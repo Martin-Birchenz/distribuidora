@@ -6,6 +6,7 @@ const authRoutes = require("./routes/auth.routes");
 const superadminRoutes = require("./routes/superadmin.routes");
 const publicRoutes = require("./routes/public.routes");
 const internalRoutes = require("./routes/internal.routes");
+const whatsappRoutes = require("./routes/whatsapp.routes");
 
 const app = express();
 
@@ -20,18 +21,12 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // 1. Permitir peticiones sin origin (Postman, curl, webhooks)
       if (!origin) return callback(null, true);
-
-      // 2. Permitir localhost, FRONTEND_URL y cualquier dominio/preview de Vercel (*.vercel.app)
       const isAllowed =
         allowedOrigins.includes(origin) || origin.endsWith(".vercel.app");
-
       if (isAllowed) {
         return callback(null, true);
       }
-
-      // Rechazar sin lanzar new Error() para no provocar un 500
       return callback(null, false);
     },
     credentials: true,
@@ -60,6 +55,7 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/superadmin", superadminRoutes);
 app.use("/api/v1/public/t/:slug", publicRoutes);
 app.use("/api/v1/internal", internalRoutes);
+app.use("/api/v1/webhooks/whatsapp", whatsappRoutes);
 
 app.use(errorHandler);
 
