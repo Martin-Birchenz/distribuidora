@@ -33,26 +33,27 @@ const ajusteStockSchema = z.object({
   motivo: z.string().min(2).max(150).trim().optional(),
 });
 
-// Helper: limpia precios con formato argentino ("$ 13.800,00" -> 13800)
-function parsePrecioFlexible(val) {
-  if (val === null || val === undefined || val === "") return undefined;
-  if (typeof val === "number") return val;
-  let s = String(val).replace(/[$\s]/g, "").trim();
+function parseNumeroFlexible(val, fallback = 0) {
+  if (val === null || val === undefined || val === "") return fallback;
+  if (typeof val === "number") return Number.isFinite(val) ? val : fallback;
+  let s = String(val)
+    .replace(/[$a-zA-Z\s]/g, "")
+    .trim();
+  if (!s) return fallback;
   if (s.includes(",") && s.includes(".")) {
     s = s.replace(/\./g, "").replace(",", ".");
   } else if (s.includes(",")) {
     s = s.replace(",", ".");
-  } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) {
     s = s.replace(/\./g, "");
   }
   const n = Number(s);
-  return Number.isNaN(n) ? val : n;
+  return Number.isFinite(n) ? n : fallback;
 }
 
-// Helper: busca una columna por múltiples sinónimos sin importar mayúsculas, tildes ni guiones
 function pickCol(row, aliases) {
   const normalizedEntries = Object.entries(row).map(([k, v]) => [
-    k
+    String(k)
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -66,7 +67,9 @@ function pickCol(row, aliases) {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]/g, "");
     const found = normalizedEntries.find(([k]) => k === cleanAlias);
-    if (found && found[1] !== undefined && found[1] !== "") return found[1];
+    if (found && found[1] !== undefined && String(found[1]).trim() !== "") {
+      return found[1];
+    }
   }
   return undefined;
 }
@@ -74,7 +77,8 @@ function pickCol(row, aliases) {
 const excelProductoRowSchema = z.preprocess(
   (rawRow) => {
     if (!rawRow || typeof rawRow !== "object") return rawRow;
-    const mayorista = parsePrecioFlexible(
+
+    const mayorista = parseNumeroFlexible(
       pickCol(rawRow, [
         "precio_mayorista",
         "mayorista",
@@ -84,28 +88,46 @@ const excelProductoRowSchema = z.preprocess(
         "precio2",
         "precio",
       ]),
+      0,
     );
-    const minorista =
-      parsePrecioFlexible(
-        pickCol(rawRow, [
-          "precio_minorista",
-          "minorista",
-          "preciopublico",
-          "publico",
-          "lista1",
-          "precio1",
-        ]),
-      ) ?? mayorista;
-    const especial =
-      parsePrecioFlexible(
-        pickCol(rawRow, [
-          "precio_especial",
-          "especial",
-          "preciodistribuidor",
-          "lista3",
-          "precio3",
-        ]),
-      ) ?? mayorista;
+    const minorista = parseNumeroFlexible(
+      pickCol(rawRow, [
+        "precio_minorista",
+        "minorista",
+        "preciopublico",
+        "publico",
+        "lista1",
+        "precio1",
+      ]),
+      mayorista,
+    );
+    const especial = parseNumeroFlexible(
+      pickCol(rawRow, [
+        "precio_especial",
+        "especial",
+        "preciodistribuidor",
+        "lista3",
+        "precio3",
+      ]),
+      mayorista,
+    );
+    const stockRaw = parseNumeroFlexible(
+      pickCol(rawRow, [
+        "stock_inicial",
+        "stock",
+        "stock_actual",
+        "stockactual",
+        "stockinicial",
+        "cantidad",
+        "cant",
+        "existencia",
+        "existencias",
+        "disponible",
+        "bultos",
+        "unidades",
+      ]),
+      0,
+    );
 
     return {
       SKU: pickCol(rawRow, [
@@ -142,56 +164,33 @@ const excelProductoRowSchema = z.preprocess(
           "empaque",
           "pack",
         ]) || "Bulto",
-      Costo_Reposicion:
-        parsePrecioFlexible(
-          pickCol(rawRow, [
-            "costo",
-            "costo_reposicion",
-            "preciocosto",
-            "compra",
-          ]),
-        ) ?? 0,
+      Costo_Reposicion: parseNumeroFlexible(
+        pickCol(rawRow, ["costo", "costo_reposicion", "preciocosto", "compra"]),
+        0,
+      ),
       Precio_Minorista: minorista,
       Precio_Mayorista: mayorista,
       Precio_Especial: especial,
-      Stock_Inicial:
-        parsePrecioFlexible(
-          pickCol(rawRow, [
-            "stock_inicial",
-            "stock",
-            "stock_actual",
-            "cantidad",
-            "existencia",
-            "bultos",
-          ]),
-        ) ?? 0,
+      Stock_Inicial: Math.round(stockRaw),
     };
   },
   z.object({
     SKU: z
       .union([z.string(), z.number()])
       .transform((v) => String(v).trim())
-      .refine((v) => v.length > 0, "Falta código o SKU"),
+      .refine((v) => v.length > 0, "Falta el código o SKU del producto"),
     Nombre: z
-      .string({ required_error: "Falta nombre o descripción del producto" })
-      .min(2, "Nombre muy corto")
-      .max(180)
-      .trim(),
+      .union([z.string(), z.number()])
+      .transform((v) => String(v).trim())
+      .refine((v) => v.length >= 2, "Falta el nombre del producto"),
     Marca: z.string().max(100).trim().optional().nullable(),
     Categoria: z.string().max(100).trim().default("General"),
     Unidad_Venta: z.string().max(40).trim().default("Bulto"),
-    Costo_Reposicion: z.coerce.number().nonnegative().default(0),
-    Precio_Minorista: z.coerce
-      .number({ invalid_type_error: "Precio Minorista inválido" })
-      .nonnegative(),
-    Precio_Mayorista: z.coerce
-      .number({ invalid_type_error: "Precio Mayorista inválido" })
-      .nonnegative(),
-    Precio_Especial: z.coerce
-      .number({ invalid_type_error: "Precio Especial inválido" })
-      .nonnegative()
-      .optional(),
-    Stock_Inicial: z.coerce.number().int().default(0),
+    Costo_Reposicion: z.number().nonnegative().default(0),
+    Precio_Minorista: z.number().nonnegative().default(0),
+    Precio_Mayorista: z.number().nonnegative().default(0),
+    Precio_Especial: z.number().nonnegative().optional(),
+    Stock_Inicial: z.number().int().default(0),
   }),
 );
 

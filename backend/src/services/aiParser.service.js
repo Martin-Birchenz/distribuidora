@@ -12,6 +12,31 @@ const aiResponseSchema = z.object({
   items_ambiguos: z.array(z.string()).default([]),
 });
 
+function traducirErrorIA(error) {
+  const raw = String(error?.message || "");
+  if (raw.includes("Timeout")) {
+    return "La lectura del mensaje tardó demasiado. Intentá de nuevo en unos segundos.";
+  }
+  if (
+    raw.includes("404") ||
+    raw.includes("NOT_FOUND") ||
+    raw.includes("no longer available")
+  ) {
+    return "El servicio de lectura por inteligencia artificial necesita actualización de modelo. Avisá a soporte técnico.";
+  }
+  if (
+    raw.includes("429") ||
+    raw.includes("quota") ||
+    raw.includes("RESOURCE_EXHAUSTED")
+  ) {
+    return "Se alcanzó el límite temporal de consultas de inteligencia artificial. Esperá un momento y volvé a intentar.";
+  }
+  if (raw.includes("GEMINI_API_KEY")) {
+    return "Falta configurar la clave de inteligencia artificial en el servidor.";
+  }
+  return "No pudimos interpretar el pedido con inteligencia artificial. Podés cargarlo manualmente.";
+}
+
 class AiParserService {
   constructor() {
     this.ai = process.env.GEMINI_API_KEY
@@ -24,7 +49,7 @@ class AiParserService {
     { texto = "", audioFile = null },
   ) {
     if (!this.ai) {
-      const err = new Error("GEMINI_API_KEY no configurada en Render");
+      const err = new Error(traducirErrorIA({ message: "GEMINI_API_KEY" }));
       err.statusCode = 503;
       throw err;
     }
@@ -38,7 +63,7 @@ class AiParserService {
 
     if (productos.length === 0) {
       const err = new Error(
-        "No hay productos cargados en el catálogo para mapear el pedido",
+        "Primero cargá productos en tu catálogo para poder reconocer los pedidos.",
       );
       err.statusCode = 400;
       throw err;
@@ -89,66 +114,72 @@ ${catalogoCompacto}
       ),
     );
 
-    const response = await Promise.race([
-      this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents,
-        config: {
-          systemInstruction,
-          temperature: 0,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              items_identificados: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    producto_id: { type: Type.INTEGER },
-                    cantidad: { type: Type.INTEGER },
+    try {
+      const response = await Promise.race([
+        this.ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents,
+          config: {
+            systemInstruction,
+            temperature: 0,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                items_identificados: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      producto_id: { type: Type.INTEGER },
+                      cantidad: { type: Type.INTEGER },
+                    },
+                    required: ["producto_id", "cantidad"],
                   },
-                  required: ["producto_id", "cantidad"],
+                },
+                items_ambiguos: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
               },
-              items_ambiguos: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
+              required: ["items_identificados", "items_ambiguos"],
             },
-            required: ["items_identificados", "items_ambiguos"],
           },
-        },
-      }),
-      timeoutPromise,
-    ]);
+        }),
+        timeoutPromise,
+      ]);
 
-    const parsedJson = aiResponseSchema.parse(JSON.parse(response.text));
+      const parsedJson = aiResponseSchema.parse(JSON.parse(response.text));
 
-    const prodMap = new Map(productos.map((p) => [p.id, p]));
-    const itemsHidratados = [];
+      const prodMap = new Map(productos.map((p) => [p.id, p]));
+      const itemsHidratados = [];
 
-    for (const item of parsedJson.items_identificados) {
-      const prod = prodMap.get(item.producto_id);
-      if (!prod) continue;
-      itemsHidratados.push({
-        producto_id: prod.id,
-        sku: prod.sku,
-        nombre: prod.nombre,
-        unidad_venta: prod.unidad_venta,
-        cantidad: item.cantidad,
-        stock_actual: prod.stock_actual,
-        precio_mayorista: Number(prod.precio_mayorista),
-        precio_minorista: Number(prod.precio_minorista),
-        precio_especial: Number(prod.precio_especial),
-        sin_stock_suficiente: prod.stock_actual < item.cantidad,
-      });
+      for (const item of parsedJson.items_identificados) {
+        const prod = prodMap.get(item.producto_id);
+        if (!prod) continue;
+        itemsHidratados.push({
+          producto_id: prod.id,
+          sku: prod.sku,
+          nombre: prod.nombre,
+          unidad_venta: prod.unidad_venta,
+          cantidad: item.cantidad,
+          stock_actual: prod.stock_actual,
+          precio_mayorista: Number(prod.precio_mayorista),
+          precio_minorista: Number(prod.precio_minorista),
+          precio_especial: Number(prod.precio_especial),
+          sin_stock_suficiente: prod.stock_actual < item.cantidad,
+        });
+      }
+
+      return {
+        items_listos: itemsHidratados,
+        items_ambiguos: parsedJson.items_ambiguos,
+      };
+    } catch (error) {
+      const err = new Error(traducirErrorIA(error));
+      err.statusCode = error?.statusCode || 500;
+      throw err;
     }
-
-    return {
-      items_listos: itemsHidratados,
-      items_ambiguos: parsedJson.items_ambiguos,
-    };
   }
 }
 
