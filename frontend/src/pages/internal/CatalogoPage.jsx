@@ -8,6 +8,7 @@ import {
   AlertCircle,
   PackagePlus,
   X,
+  TrendingUp,
 } from "lucide-react";
 import api from "../../config/api";
 import { useAuth } from "../../context/AuthContext";
@@ -30,6 +31,7 @@ const INITIAL_PRODUCTO = {
 export default function CatalogoPage() {
   const { user } = useAuth();
   const canEdit = ["SUPERADMIN", "ADMIN", "DEPOSITO"].includes(user?.role);
+  const canPriceIA = ["SUPERADMIN", "ADMIN"].includes(user?.role);
 
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
@@ -41,6 +43,15 @@ export default function CatalogoPage() {
   const [modalNuevoOpen, setModalNuevoOpen] = useState(false);
   const [nuevoProd, setNuevoProd] = useState(INITIAL_PRODUCTO);
   const [guardandoProd, setGuardandoProd] = useState(false);
+
+  // Modal Sugerencia de Precios IA desde lista de proveedor
+  const [modalPreciosIAOpen, setModalPreciosIAOpen] = useState(false);
+  const [listaProveedorTexto, setListaProveedorTexto] = useState("");
+  const [margenPct, setMargenPct] = useState(20);
+  const [analizandoPrecios, setAnalizandoPrecios] = useState(false);
+  const [sugerenciasPrecios, setSugerenciasPrecios] = useState([]);
+  const [noEncontradosIA, setNoEncontradosIA] = useState([]);
+  const [aplicandoPrecios, setAplicandoPrecios] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -150,6 +161,67 @@ export default function CatalogoPage() {
     }
   };
 
+  const handleSugerirPreciosIA = async () => {
+    if (!listaProveedorTexto.trim()) return;
+    setAnalizandoPrecios(true);
+    setSugerenciasPrecios([]);
+    setNoEncontradosIA([]);
+    try {
+      const { data } = await api.post(
+        "/internal/productos/sugerir-precios-ia",
+        {
+          lista_texto: listaProveedorTexto,
+          margen_porcentaje: Number(margenPct || 20),
+        },
+      );
+      const listaSug = (data.data?.sugerencias || []).map((s) => ({
+        ...s,
+        seleccionado: true,
+      }));
+      setSugerenciasPrecios(listaSug);
+      setNoEncontradosIA(data.data?.no_encontrados || []);
+    } catch (err) {
+      alert(
+        err.response?.data?.message ||
+          "No pudimos analizar la lista del proveedor.",
+      );
+    } finally {
+      setAnalizandoPrecios(false);
+    }
+  };
+
+  const handleAplicarPreciosIA = async () => {
+    const elegidos = sugerenciasPrecios.filter((s) => s.seleccionado);
+    if (elegidos.length === 0) return;
+    setAplicandoPrecios(true);
+    try {
+      const { data } = await api.post(
+        "/internal/productos/aplicar-precios-ia",
+        {
+          items: elegidos,
+        },
+      );
+      setImportStatus({
+        ok: true,
+        message:
+          data.message ||
+          `${elegidos.length} productos actualizados correctamente.`,
+      });
+      setModalPreciosIAOpen(false);
+      setListaProveedorTexto("");
+      setSugerenciasPrecios([]);
+      setNoEncontradosIA([]);
+      fetchProductos();
+    } catch (err) {
+      alert(
+        err.response?.data?.message ||
+          "No se pudieron aplicar los nuevos precios.",
+      );
+    } finally {
+      setAplicandoPrecios(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -158,20 +230,32 @@ export default function CatalogoPage() {
             Catálogo y Control de Stock
           </h1>
           <p className="text-xs text-slate-500">
-            Carga manual, importación inteligente de Excel e inventario en
-            tiempo real
+            Carga manual, importación de Excel, ajuste de precios por lista e
+            inventario
           </p>
         </div>
 
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={() => setModalNuevoOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-sm cursor-pointer"
             >
               <PackagePlus className="w-4 h-4" />
               Nuevo Producto
             </button>
+
+            {canPriceIA && (
+              <button
+                type="button"
+                onClick={() => setModalPreciosIAOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white text-xs font-semibold shadow-sm cursor-pointer"
+              >
+                <TrendingUp className="w-4 h-4" />
+                Sugerir Precios IA
+              </button>
+            )}
 
             <input
               ref={fileInputRef}
@@ -181,6 +265,7 @@ export default function CatalogoPage() {
               className="hidden"
             />
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold shadow-sm cursor-pointer disabled:opacity-60"
@@ -200,13 +285,22 @@ export default function CatalogoPage() {
               : "bg-red-50 border-red-200 text-red-800"
           }`}
         >
-          <div className="flex items-center gap-2 font-bold">
-            {importStatus.ok ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-red-600" />
-            )}
-            <span>{importStatus.message}</span>
+          <div className="flex items-center justify-between gap-2 font-bold">
+            <div className="flex items-center gap-2">
+              {importStatus.ok ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-600" />
+              )}
+              <span>{importStatus.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setImportStatus(null)}
+              className="p-1 rounded-lg hover:bg-black/5 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
           {importStatus.errors?.length > 0 && (
             <ul className="list-disc pl-5 space-y-0.5">
@@ -283,6 +377,7 @@ export default function CatalogoPage() {
                       <div className="flex items-center gap-2">
                         {canEdit && (
                           <button
+                            type="button"
                             onClick={() => handleAjustarStock(p.id, -1)}
                             className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-100 cursor-pointer"
                           >
@@ -302,6 +397,7 @@ export default function CatalogoPage() {
                         </span>
                         {canEdit && (
                           <button
+                            type="button"
                             onClick={() => handleAjustarStock(p.id, 1)}
                             className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center hover:bg-slate-100 cursor-pointer"
                           >
@@ -317,6 +413,141 @@ export default function CatalogoPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal Sugerencia de Precios IA */}
+      {modalPreciosIAOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl my-8">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base">
+                  Sugerir Precios desde Lista de Proveedor (IA)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Pegá la lista del proveedor, revisá la sugerencia y aplicá los
+                  cambios que apruebes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalPreciosIAOpen(false)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <label className="font-bold text-slate-700">
+                  Margen sugerido sobre costo (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="500"
+                  value={margenPct}
+                  onChange={(e) => setMargenPct(e.target.value)}
+                  className="w-24 px-3 py-1.5 rounded-xl border border-slate-300 font-bold text-right"
+                />
+              </div>
+
+              <textarea
+                rows={5}
+                value={listaProveedorTexto}
+                onChange={(e) => setListaProveedorTexto(e.target.value)}
+                placeholder="Pegá acá el texto o filas de la lista de precios del proveedor..."
+                className="w-full p-3 rounded-xl border border-slate-300 text-xs"
+              />
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSugerirPreciosIA}
+                  disabled={analizandoPrecios || !listaProveedorTexto.trim()}
+                  className="px-4 py-2 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {analizandoPrecios ? "Analizando lista..." : "Analizar Lista"}
+                </button>
+              </div>
+            </div>
+
+            {sugerenciasPrecios.length > 0 && (
+              <div className="space-y-2 border-t pt-3">
+                <div className="text-xs font-bold text-slate-800">
+                  Sugerencias detectadas ({sugerenciasPrecios.length})
+                </div>
+                <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 border rounded-xl">
+                  {sugerenciasPrecios.map((s, idx) => (
+                    <div
+                      key={s.producto_id}
+                      className="p-2.5 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={s.seleccionado}
+                          onChange={(e) => {
+                            const copia = [...sugerenciasPrecios];
+                            copia[idx] = {
+                              ...copia[idx],
+                              seleccionado: e.target.checked,
+                            };
+                            setSugerenciasPrecios(copia);
+                          }}
+                        />
+                        <div>
+                          <div className="font-bold text-slate-900">
+                            {s.nombre}{" "}
+                            <span className="font-mono text-slate-400">
+                              ({s.sku})
+                            </span>
+                          </div>
+                          <div className="text-slate-500">
+                            Costo: ${s.costo_actual.toLocaleString("es-AR")} →{" "}
+                            <strong className="text-slate-800">
+                              ${s.nuevo_costo.toLocaleString("es-AR")}
+                            </strong>{" "}
+                            | Mayorista: $
+                            {s.precio_mayorista_actual.toLocaleString("es-AR")}{" "}
+                            →{" "}
+                            <strong className="text-emerald-700">
+                              $
+                              {s.nuevo_precio_mayorista.toLocaleString("es-AR")}
+                            </strong>{" "}
+                            ({s.variacion_pct >= 0 ? "+" : ""}
+                            {s.variacion_pct}%)
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                {noEncontradosIA.length > 0 && (
+                  <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 text-xs">
+                    <strong>No encontrados en catálogo:</strong>{" "}
+                    {noEncontradosIA.join(" • ")}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleAplicarPreciosIA}
+                    disabled={aplicandoPrecios}
+                    className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {aplicandoPrecios
+                      ? "Aplicando..."
+                      : "Aplicar Precios Seleccionados"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal Alta Manual de Producto */}
       {modalNuevoOpen && (

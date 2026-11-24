@@ -265,13 +265,21 @@ class CatalogoService {
         defval: "",
       });
       if (sheetData.length > 0) {
-        rawRows = sheetData
-          .map(normalizarFilaExcel)
-          .filter(
-            (r) =>
-              (r.SKU !== "" || r.Nombre !== "") &&
-              r.Nombre.toUpperCase() !== "TOTALES",
-          );
+        rawRows = sheetData.map(normalizarFilaExcel).filter((r) => {
+          const skuUpper = String(r.SKU || "")
+            .trim()
+            .toUpperCase();
+          const nombreUpper = String(r.Nombre || "")
+            .trim()
+            .toUpperCase();
+          const tieneDatos = skuUpper !== "" || nombreUpper !== "";
+          const esTotal =
+            nombreUpper === "TOTALES" ||
+            nombreUpper === "TOTAL" ||
+            skuUpper === "TOTAL" ||
+            skuUpper === "TOTALES";
+          return tieneDatos && !esTotal;
+        });
         if (rawRows.length > 0) break;
       }
     }
