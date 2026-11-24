@@ -29,18 +29,6 @@ class AiParserService {
       throw err;
     }
 
-    const [distRows] = await pool.query(
-      "SELECT has_ai_addon FROM distribuidoras WHERE id = ? LIMIT 1",
-      [distribuidoraId],
-    );
-    if (!distRows[0]?.has_ai_addon) {
-      const err = new Error(
-        "El Add-on de IA para WhatsApp no está habilitado en este plan",
-      );
-      err.statusCode = 403;
-      throw err;
-    }
-
     const [productos] = await pool.query(
       `SELECT id, sku, nombre, marca, unidad_venta, precio_mayorista, precio_minorista, precio_especial, stock_actual
        FROM productos

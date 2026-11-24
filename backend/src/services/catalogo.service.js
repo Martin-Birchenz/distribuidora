@@ -2,6 +2,51 @@ const XLSX = require("xlsx");
 const pool = require("../config/db");
 const { excelProductoRowSchema } = require("../schemas/catalogo.schema");
 
+// Normaliza nombres de columnas del Excel (ignora mayúsculas, tildes y espacios)
+function normalizarFilaExcel(rawRow) {
+  const clean = {};
+  for (const [k, v] of Object.entries(rawRow)) {
+    const key = String(k)
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, "_");
+    clean[key] = v;
+  }
+
+  return {
+    SKU: String(clean.sku ?? clean.codigo ?? clean.cod ?? "").trim(),
+    Nombre: String(
+      clean.nombre ?? clean.producto ?? clean.descripcion ?? "",
+    ).trim(),
+    Categoria:
+      String(clean.categoria ?? clean.rubro ?? "General").trim() || "General",
+    Unidad_Venta:
+      String(
+        clean.unidad_venta ?? clean.presentacion ?? clean.unidad ?? "Unidad",
+      ).trim() || "Unidad",
+    Precio_Minorista: Number(
+      clean.precio_minorista ??
+        clean.minorista ??
+        clean.precio_publico ??
+        clean.precio_mayorista ??
+        clean.mayorista ??
+        0,
+    ),
+    Precio_Mayorista: Number(
+      clean.precio_mayorista ?? clean.mayorista ?? clean.precio ?? 0,
+    ),
+    Precio_Especial:
+      clean.precio_especial !== undefined && clean.precio_especial !== ""
+        ? Number(clean.precio_especial)
+        : undefined,
+    Stock_Inicial: Number(
+      clean.stock_inicial ?? clean.stock ?? clean.cantidad ?? 0,
+    ),
+  };
+}
+
 class CatalogoService {
   async listarCategorias(distribuidoraId) {
     const [rows] = await pool.query(
@@ -210,22 +255,31 @@ class CatalogoService {
     }
   }
 
-  // Importación masiva desde Excel (.xlsx / .xls / .csv) con validación Zod fila a fila
   async importarDesdeExcel(distribuidoraId, fileBuffer) {
     const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-    const firstSheetName = workbook.SheetNames[0];
-    const rawRows = XLSX.utils
-      .sheet_to_json(workbook.Sheets[firstSheetName], { defval: "" })
-      .filter(
-        (r) =>
-          String(r.SKU || "").trim() !== "" &&
-          String(r.Nombre || "")
-            .trim()
-            .toUpperCase() !== "TOTALES",
-      );
+
+    // Buscar la primera hoja con datos
+    let rawRows = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+        defval: "",
+      });
+      if (sheetData.length > 0) {
+        rawRows = sheetData
+          .map(normalizarFilaExcel)
+          .filter(
+            (r) =>
+              (r.SKU !== "" || r.Nombre !== "") &&
+              r.Nombre.toUpperCase() !== "TOTALES",
+          );
+        if (rawRows.length > 0) break;
+      }
+    }
 
     if (rawRows.length === 0) {
-      const err = new Error("La planilla Excel está vacía");
+      const err = new Error(
+        "No se encontraron filas con datos. Verificá que la planilla tenga columnas SKU y Nombre.",
+      );
       err.statusCode = 400;
       throw err;
     }
@@ -235,7 +289,7 @@ class CatalogoService {
     const skusVistos = new Set();
 
     rawRows.forEach((row, index) => {
-      const numeroFila = index + 2; // Fila 1 es encabezado
+      const numeroFila = index + 2;
       const parsed = excelProductoRowSchema.safeParse(row);
 
       if (!parsed.success) {
@@ -275,7 +329,6 @@ class CatalogoService {
     try {
       await connection.beginTransaction();
 
-      // Resolver o crear categorías dinámicamente
       const [catsExistentes] = await connection.query(
         `SELECT id, LOWER(nombre) AS nombre_lower FROM categorias WHERE distribuidora_id = ? AND deleted_at IS NULL`,
         [distribuidoraId],

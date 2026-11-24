@@ -67,8 +67,23 @@ export default function CatalogoPage() {
 
   const handleAjustarStock = async (id, cantidad) => {
     try {
-      await api.post(`/internal/productos/${id}/stock`, { cantidad });
-      fetchProductos();
+      const { data } = await api.post(`/internal/productos/${id}/stock`, {
+        cantidad,
+      });
+      const nuevoStock = data?.data?.stock_actual;
+      setProductos((prev) =>
+        prev.map((prod) =>
+          prod.id === id
+            ? {
+                ...prod,
+                stock_actual:
+                  nuevoStock !== undefined
+                    ? nuevoStock
+                    : prod.stock_actual + cantidad,
+              }
+            : prod,
+        ),
+      );
     } catch (err) {
       alert(err.response?.data?.message || "No se pudo ajustar stock");
     }
