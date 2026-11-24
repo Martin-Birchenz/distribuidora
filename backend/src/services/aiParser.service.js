@@ -27,7 +27,7 @@ const supplierPriceResponseSchema = z.object({
 function traducirErrorIA(error) {
   const raw = String(error?.message || "");
   if (raw.includes("Timeout")) {
-    return "La consulta tardó demasiado. Volvé a intentarlo en unos segundos.";
+    return "La inteligencia artificial tardó demasiado en responder. Intentá de nuevo con un texto más corto.";
   }
   if (
     raw.includes("404") ||
@@ -47,6 +47,27 @@ function traducirErrorIA(error) {
     return "Falta configurar la clave de inteligencia artificial en el servidor.";
   }
   return "No pudimos procesar la solicitud con inteligencia artificial. Intentá nuevamente.";
+}
+
+function conTimeout(promise, ms = 15000) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Timeout")), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function parsearJsonSeguro(rawText) {
+  const texto = String(rawText || "").trim();
+  if (!texto) {
+    throw new Error("Respuesta vacía del modelo");
+  }
+  const sinMarkdown = texto
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  return JSON.parse(sinMarkdown);
 }
 
 class AiParserService {
@@ -107,42 +128,46 @@ ${catalogoCompacto}
 `;
 
     try {
-      const response = await this.ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: [
-          {
-            text: `Mensaje de WhatsApp del cliente:\n"${limpio}"`,
-          },
-        ],
-        config: {
-          systemInstruction,
-          temperature: 0,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              items_identificados: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    producto_id: { type: Type.INTEGER },
-                    cantidad: { type: Type.INTEGER },
+      const response = await conTimeout(
+        this.ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: [
+            {
+              text: `Mensaje de WhatsApp del cliente:\n"${limpio}"`,
+            },
+          ],
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                items_identificados: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      producto_id: { type: Type.INTEGER },
+                      cantidad: { type: Type.INTEGER },
+                    },
+                    required: ["producto_id", "cantidad"],
                   },
-                  required: ["producto_id", "cantidad"],
+                },
+                items_ambiguos: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
               },
-              items_ambiguos: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
+              required: ["items_identificados", "items_ambiguos"],
             },
-            required: ["items_identificados", "items_ambiguos"],
           },
-        },
-      });
+        }),
+        15000,
+      );
 
-      const parsedJson = aiResponseSchema.parse(JSON.parse(response.text));
+      const parsedJson = aiResponseSchema.parse(
+        parsearJsonSeguro(response.text),
+      );
       const prodMap = new Map(productos.map((p) => [p.id, p]));
 
       const itemsHidratados = [];
@@ -230,49 +255,51 @@ ${catalogoActual}
 `;
 
     try {
-      const response = await this.ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: [
-          {
-            text: `Lista del proveedor:\n"""\n${limpio}\n"""`,
-          },
-        ],
-        config: {
-          systemInstruction,
-          temperature: 0,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              sugerencias: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    producto_id: { type: Type.INTEGER },
-                    nuevo_costo: { type: Type.NUMBER },
-                    nuevo_precio_mayorista: { type: Type.NUMBER },
-                    motivo: { type: Type.STRING },
+      const response = await conTimeout(
+        this.ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: [
+            {
+              text: `Lista del proveedor:\n"""\n${limpio}\n"""`,
+            },
+          ],
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                sugerencias: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      producto_id: { type: Type.INTEGER },
+                      nuevo_costo: { type: Type.NUMBER },
+                      nuevo_precio_mayorista: { type: Type.NUMBER },
+                      motivo: { type: Type.STRING },
+                    },
+                    required: [
+                      "producto_id",
+                      "nuevo_costo",
+                      "nuevo_precio_mayorista",
+                    ],
                   },
-                  required: [
-                    "producto_id",
-                    "nuevo_costo",
-                    "nuevo_precio_mayorista",
-                  ],
+                },
+                no_encontrados: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
               },
-              no_encontrados: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
+              required: ["sugerencias", "no_encontrados"],
             },
-            required: ["sugerencias", "no_encontrados"],
           },
-        },
-      });
+        }),
+        15000,
+      );
 
       const parsed = supplierPriceResponseSchema.parse(
-        JSON.parse(response.text),
+        parsearJsonSeguro(response.text),
       );
       const prodMap = new Map(productos.map((p) => [p.id, p]));
 
