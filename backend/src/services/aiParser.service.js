@@ -49,7 +49,7 @@ function traducirErrorIA(error) {
   return "No pudimos procesar la solicitud con inteligencia artificial. Intentá nuevamente.";
 }
 
-function conTimeout(promise, ms = 15000) {
+function conTimeout(promise, ms = 30000) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error("Timeout")), ms);
@@ -77,14 +77,16 @@ class AiParserService {
       : null;
   }
 
-  async parsearPedidoTextoWhatsApp(distribuidoraId, texto = "") {
+  async parsearPedidoTextoWhatsApp(distribuidoraId, payload = "") {
+    const texto = typeof payload === "string" ? payload : payload?.texto || "";
+
     if (!this.ai) {
       const err = new Error(traducirErrorIA({ message: "GEMINI_API_KEY" }));
       err.statusCode = 503;
       throw err;
     }
 
-    const limpio = String(texto || "").trim();
+    const limpio = String(texto).trim();
     if (!limpio) {
       const err = new Error("Pegá el texto del pedido de WhatsApp primero.");
       err.statusCode = 400;
@@ -162,7 +164,7 @@ ${catalogoCompacto}
             },
           },
         }),
-        15000,
+        30000,
       );
 
       const parsedJson = aiResponseSchema.parse(
@@ -193,10 +195,16 @@ ${catalogoCompacto}
         items_ambiguos: parsedJson.items_ambiguos,
       };
     } catch (error) {
+      console.error("[AI Parser Error]:", error);
       const err = new Error(traducirErrorIA(error));
       err.statusCode = error?.statusCode || 500;
       throw err;
     }
+  }
+
+  // Alias por compatibilidad si algún código llama parsearPedidoWhatsApp
+  async parsearPedidoWhatsApp(distribuidoraId, payload = "") {
+    return this.parsearPedidoTextoWhatsApp(distribuidoraId, payload);
   }
 
   async sugerirActualizacionListaProveedor(
@@ -295,7 +303,7 @@ ${catalogoActual}
             },
           },
         }),
-        15000,
+        30000,
       );
 
       const parsed = supplierPriceResponseSchema.parse(
@@ -342,6 +350,7 @@ ${catalogoActual}
         no_encontrados: parsed.no_encontrados || [],
       };
     } catch (error) {
+      console.error("[AI Supplier Price Error]:", error);
       const err = new Error(traducirErrorIA(error));
       err.statusCode = error?.statusCode || 500;
       throw err;
