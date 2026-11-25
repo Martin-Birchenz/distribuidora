@@ -218,22 +218,19 @@ class WhatsAppAssistantService {
 
     const destino = normalizarTelefono(to);
     const res = await conTimeout(
-      fetch(
-        `[https://graph.facebook.com/v21.0/$](https://graph.facebook.com/v21.0/$){phoneNumberId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: destino,
-            type: "text",
-            text: { body },
-          }),
+      fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
-      ),
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: destino,
+          type: "text",
+          text: { body },
+        }),
+      }),
       15000,
     );
 
