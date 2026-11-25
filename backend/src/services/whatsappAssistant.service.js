@@ -142,10 +142,11 @@ class WhatsAppAssistantService {
     }
 
     if (!distribuidoraId) {
-      const [distRows] = await pool.query(
-        `SELECT id FROM distribuidoras WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1`,
+      const err = new Error(
+        "No se pudo identificar la distribuidora de este número de WhatsApp.",
       );
-      distribuidoraId = distRows.length > 0 ? Number(distRows[0].id) : 1;
+      err.statusCode = 400;
+      throw err;
     }
 
     const listaAplicada = cliente?.lista_precio_default || "MINORISTA";
