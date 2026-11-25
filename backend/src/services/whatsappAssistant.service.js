@@ -484,6 +484,40 @@ ${catalogoTexto}
       telefonoNormalizado,
     );
 
+    const saludosSimples = [
+      "HOLA",
+      "BUENAS",
+      "BUEN DIA",
+      "BUEN DÍA",
+      "BUENAS TARDES",
+      "BUENAS NOCHES",
+      "QUE TAL",
+      "QUÉ TAL",
+      "HOLA!",
+      "BUENAS!",
+    ];
+
+    if (
+      !carritoPendiente &&
+      !audioBase64 &&
+      saludosSimples.includes(upperTexto.replace(/[!¡?.]/g, ""))
+    ) {
+      const msgSaludo = cliente
+        ? `Hola *${cliente.nombre_fantasia}*! Mandame un texto o audio con los productos y cantidades que necesitás y te armo el carrito para confirmar.`
+        : "¡Hola! Mandame un texto o audio con los productos y cantidades que querés pedir y te preparo el detalle con el total para confirmar.";
+
+      const envio = enviarPorWhatsApp
+        ? await this.enviarMensajeWhatsApp(telefonoNormalizado, msgSaludo)
+        : { enviado: false, texto: msgSaludo };
+
+      return {
+        estado: "CONSULTA",
+        carrito_pendiente: null,
+        respuesta_whatsapp: msgSaludo,
+        envio_whatsapp: envio,
+      };
+    }
+
     const palabrasConfirmar = [
       "CONFIRMAR",
       "CONFIRMO",
