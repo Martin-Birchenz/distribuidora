@@ -28,6 +28,7 @@ class WhatsAppController {
 
     try {
       const body = req.body || {};
+      console.log("[WHATSAPP BODY]", JSON.stringify(body, null, 2));
       const entries = Array.isArray(body.entry) ? body.entry : [];
       const resultados = [];
 
