@@ -371,7 +371,7 @@ ${catalogoTexto}
     try {
       response = await conTimeout(
         this.ai.models.generateContent({
-          model: "gemini-3.8-flash",
+          model: "gemini-3.5-flash-lite",
           contents: [{ role: "user", parts }],
           config: {
             systemInstruction,
