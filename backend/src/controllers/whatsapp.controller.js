@@ -19,6 +19,13 @@ class WhatsAppController {
   }
 
   async recibirWebhook(req, res, next) {
+    console.log("[WHATSAPP WEBHOOK] POST recibido", {
+      method: req.method,
+      path: req.originalUrl,
+      bodyObject: req.body?.object,
+      entries: req.body?.entry?.length || 0,
+    });
+
     try {
       const body = req.body || {};
       const entries = Array.isArray(body.entry) ? body.entry : [];
