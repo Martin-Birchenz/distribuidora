@@ -108,12 +108,14 @@ class WhatsAppController {
         throw err;
       }
 
+      console.log("[WHATSAPP SIMULACIÓN] Usuario:", req.user);
+
       const data = await whatsappAssistantService.procesarMensajeEntrante({
         telefono,
         texto,
         audioBase64: finalAudioBase64,
         audioMimeType: finalMimeType,
-        distribuidoraIdForzada: req.distribuidoraId,
+        distribuidoraIdForzada: req.user.distribuidoraId,
         enviarPorWhatsApp: Boolean(enviarPorWhatsApp),
       });
 
