@@ -365,42 +365,57 @@ ${catalogoTexto}
         : "Escuchá el audio del cliente y extraé el pedido.",
     });
 
-    const response = await conTimeout(
-      this.ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: [{ role: "user", parts }],
-        config: {
-          systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              intencion: {
-                type: Type.STRING,
-                enum: ["PEDIDO", "CONFIRMAR", "CANCELAR", "CONSULTA"],
-              },
-              items_identificados: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    producto_id: { type: Type.INTEGER },
-                    cantidad: { type: Type.INTEGER },
+    let response;
+
+    try {
+      response = await conTimeout(
+        this.ai.models.generateContent({
+          model: "gemini-3.8-flash",
+          contents: [{ role: "user", parts }],
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                intencion: {
+                  type: Type.STRING,
+                  enum: ["PEDIDO", "CONFIRMAR", "CANCELAR", "CONSULTA"],
+                },
+                items_identificados: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      producto_id: { type: Type.INTEGER },
+                      cantidad: { type: Type.INTEGER },
+                    },
+                    required: ["producto_id", "cantidad"],
                   },
-                  required: ["producto_id", "cantidad"],
+                },
+                items_ambiguos: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
               },
-              items_ambiguos: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
+              required: ["intencion", "items_identificados", "items_ambiguos"],
             },
-            required: ["intencion", "items_identificados", "items_ambiguos"],
           },
-        },
-      }),
-      30000,
-    );
+        }),
+        30000,
+      );
+    } catch (error) {
+      console.error("[GEMINI ERROR]", error.status, error.message);
+
+      const err = new Error(
+        error.status === 429
+          ? "El asistente alcanzó el límite de consultas. Intentá nuevamente más tarde."
+          : "No se pudo procesar el mensaje. Intentá nuevamente.",
+      );
+
+      err.statusCode = error.status === 429 ? 429 : 503;
+      throw err;
+    }
 
     const parsed = aiPedidoSchema.parse(parsearJsonSeguro(response.text));
     const prodMap = new Map(productos.map((p) => [Number(p.id), p]));
