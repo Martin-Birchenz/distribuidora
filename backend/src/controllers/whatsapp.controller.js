@@ -45,6 +45,12 @@ class WhatsAppController {
 
             if (msg.type === "text") {
               const texto = msg?.text?.body || "";
+
+              console.log("[WHATSAPP] Iniciando procesamiento", {
+                phoneNumberId,
+                tipo: msg.type,
+              });
+
               const resMsg =
                 await whatsappAssistantService.procesarMensajeEntrante({
                   telefono: from,
@@ -52,21 +58,13 @@ class WhatsAppController {
                   phoneNumberId,
                   enviarPorWhatsApp: true,
                 });
+
+              console.log("[WHATSAPP] Procesamiento finalizado", {
+                estado: resMsg?.estado,
+                envio: resMsg?.envio_whatsapp,
+              });
+
               resultados.push(resMsg);
-            } else if (msg.type === "audio") {
-              const mediaId = msg?.audio?.id;
-              if (!mediaId) continue;
-              const audioDescargado =
-                await whatsappAssistantService.descargarAudioWhatsApp(mediaId);
-              const resAudio =
-                await whatsappAssistantService.procesarMensajeEntrante({
-                  telefono: from,
-                  audioBase64: audioDescargado.buffer.toString("base64"),
-                  audioMimeType: audioDescargado.mimeType,
-                  phoneNumberId,
-                  enviarPorWhatsApp: true,
-                });
-              resultados.push(resAudio);
             }
           }
         }
@@ -78,6 +76,7 @@ class WhatsAppController {
         resultados,
       });
     } catch (error) {
+      console.error("[WHATSAPP WEBHOOK ERROR]", error);
       next(error);
     }
   }
